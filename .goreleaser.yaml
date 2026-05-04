@@ -1,0 +1,24 @@
+version: 2
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+
+brews:
+  - repository:
+      owner: robinjoseph08
+      name: homebrew-tap
+    homepage: https://github.com/robinjoseph08/wktr
+    description: Manage git worktrees with tmux integration
+    license: MIT
+    install: |
+      bin.install "wktr"
