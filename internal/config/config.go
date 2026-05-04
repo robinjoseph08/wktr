@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -99,13 +100,21 @@ func LoadGlobalFrom(path string) (GlobalConfig, error) {
 
 func LoadRepo(dir string) (*Layout, error) {
 	localPath := filepath.Join(dir, ".wktr.local.yaml")
-	if layout, err := loadLayoutFile(localPath); err == nil {
+	layout, err := loadLayoutFile(localPath)
+	if err == nil {
 		return layout, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("invalid %s: %w", localPath, err)
 	}
 
 	repoPath := filepath.Join(dir, ".wktr.yaml")
-	if layout, err := loadLayoutFile(repoPath); err == nil {
+	layout, err = loadLayoutFile(repoPath)
+	if err == nil {
 		return layout, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("invalid %s: %w", repoPath, err)
 	}
 
 	return nil, nil

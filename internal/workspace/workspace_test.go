@@ -72,8 +72,37 @@ func TestInferTaskName(t *testing.T) {
 	}
 }
 
+func TestValidTaskName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		valid bool
+	}{
+		{"simple", "my-task", true},
+		{"with underscore", "my_task", true},
+		{"alphanumeric", "fix123", true},
+		{"starts with number", "1fix", true},
+		{"has dot", "fix.1", false},
+		{"has colon", "fix:1", false},
+		{"has space", "fix bug", false},
+		{"has slash", "fix/bug", false},
+		{"starts with hyphen", "-fix", false},
+		{"starts with underscore", "_fix", false},
+		{"has double dot", "fix..bug", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validTaskName.MatchString(tt.input)
+			if got != tt.valid {
+				t.Errorf("validTaskName(%q) = %v, want %v", tt.input, got, tt.valid)
+			}
+		})
+	}
+}
+
 func TestCleanEmptyParents(t *testing.T) {
-	// This is a filesystem operation test — uses temp dirs
 	dir := t.TempDir()
 
 	// cleanEmptyParents should not panic or error on non-existent paths

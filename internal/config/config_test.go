@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -139,6 +140,45 @@ func TestLoadRepoLocalOverridesRepo(t *testing.T) {
 	}
 	if layout.Panes[0].Command != "local-command" {
 		t.Errorf("expected local config to win, got command %q", layout.Panes[0].Command)
+	}
+}
+
+func TestLoadRepoInvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+
+	os.WriteFile(filepath.Join(dir, ".wktr.yaml"), []byte(":\tinvalid: {{yaml"), 0o644)
+
+	_, err := LoadRepo(dir)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML, got nil")
+	}
+	if !strings.Contains(err.Error(), ".wktr.yaml") {
+		t.Errorf("expected error to mention file path, got: %v", err)
+	}
+}
+
+func TestLoadRepoInvalidLocalYAML(t *testing.T) {
+	dir := t.TempDir()
+
+	// Valid repo config
+	repoConfig := RepoConfig{
+		Layout: Layout{
+			Direction: "vertical",
+			Panes:    []Pane{{Command: "repo-command"}},
+		},
+	}
+	data, _ := yaml.Marshal(repoConfig)
+	os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644)
+
+	// Invalid local config
+	os.WriteFile(filepath.Join(dir, ".wktr.local.yaml"), []byte(":\tinvalid: {{yaml"), 0o644)
+
+	_, err := LoadRepo(dir)
+	if err == nil {
+		t.Fatal("expected error for invalid local YAML, got nil")
+	}
+	if !strings.Contains(err.Error(), ".wktr.local.yaml") {
+		t.Errorf("expected error to mention local file path, got: %v", err)
 	}
 }
 

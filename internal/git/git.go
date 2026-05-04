@@ -98,7 +98,7 @@ func DeleteBranch(repoDir, branchName string) error {
 }
 
 func BranchExists(repoDir, branchName string) bool {
-	cmd := exec.Command("git", "-C", repoDir, "rev-parse", "--verify", branchName)
+	cmd := exec.Command("git", "-C", repoDir, "rev-parse", "--verify", "refs/heads/"+branchName)
 	return cmd.Run() == nil
 }
 

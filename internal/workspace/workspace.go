@@ -6,12 +6,15 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/robinjoseph08/wktr/internal/config"
 	"github.com/robinjoseph08/wktr/internal/git"
 	"github.com/robinjoseph08/wktr/internal/tmux"
 )
+
+var validTaskName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 type CreateOpts struct {
 	Name string
@@ -71,12 +74,20 @@ func Create(opts CreateOpts) error {
 	resolved := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
 
 	name := opts.Name
-	if name == "" {
-		name = generateName()
+	if name != "" {
+		if !validTaskName.MatchString(name) {
+			return fmt.Errorf("invalid task name %q: must start with alphanumeric and contain only alphanumeric, hyphens, or underscores", name)
+		}
+	} else {
+		var err error
+		name, err = generateUniqueName(mainWorktree, resolved.BranchPrefix)
+		if err != nil {
+			return err
+		}
 	}
 
 	branchName := resolved.BranchPrefix + name
-	if git.BranchExists(mainWorktree, branchName) {
+	if opts.Name != "" && git.BranchExists(mainWorktree, branchName) {
 		return fmt.Errorf("branch %q already exists — use a different name or run `wktr remove %s` first", branchName, name)
 	}
 
@@ -283,6 +294,16 @@ func inferTaskName(cwd, worktreeBase string, orgRepo git.OrgRepo) string {
 	remainder := strings.TrimPrefix(cwd, repoBase+"/")
 	parts := strings.SplitN(remainder, "/", 2)
 	return parts[0]
+}
+
+func generateUniqueName(repoDir, branchPrefix string) (string, error) {
+	for range 10 {
+		name := generateName()
+		if !git.BranchExists(repoDir, branchPrefix+name) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("failed to generate a unique task name after 10 attempts")
 }
 
 func generateName() string {

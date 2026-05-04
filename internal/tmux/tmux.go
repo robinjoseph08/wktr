@@ -31,9 +31,12 @@ func SetupPanes(windowName string, dir string, layout config.Layout) error {
 	sizes := calculateSizes(panes)
 
 	for i := 1; i < len(panes); i++ {
-		size := sizes[i]
-		target := fmt.Sprintf("%s.0", windowName)
-		cmd := exec.Command("tmux", "split-window", "-d", "-v", "-l", strconv.Itoa(size), "-t", target, "-c", dir)
+		splitSize := 0
+		for j := i; j < len(panes); j++ {
+			splitSize += sizes[j]
+		}
+		target := fmt.Sprintf("%s.%d", windowName, i-1)
+		cmd := exec.Command("tmux", "split-window", "-d", "-v", "-l", strconv.Itoa(splitSize), "-t", target, "-c", dir)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to split pane: %s", strings.TrimSpace(string(out)))
 		}

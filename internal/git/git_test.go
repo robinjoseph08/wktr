@@ -100,6 +100,21 @@ func TestBranchExists(t *testing.T) {
 	}
 }
 
+func TestBranchExistsIgnoresTags(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a tag with a name that looks like a branch
+	cmd := exec.Command("git", "-C", dir, "tag", "wktr/fake-task")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create tag: %s", out)
+	}
+
+	// BranchExists should return false for tags
+	if BranchExists(dir, "wktr/fake-task") {
+		t.Error("expected BranchExists to return false for a tag")
+	}
+}
+
 func TestHasUncommittedChanges(t *testing.T) {
 	dir := initTestRepo(t)
 
