@@ -165,7 +165,7 @@ func Remove(opts RemoveOpts) error {
 		}
 		fmt.Print("Are you sure? [y/N] ")
 		var response string
-		fmt.Scanln(&response)
+		_, _ = fmt.Scanln(&response)
 		if !strings.HasPrefix(strings.ToLower(response), "y") {
 			fmt.Println("Cancelled")
 			return nil
@@ -182,7 +182,7 @@ func Remove(opts RemoveOpts) error {
 		return err
 	}
 
-	tmux.KillWindow(name)
+	_ = tmux.KillWindow(name)
 
 	cleanEmptyParents(worktreeDir, resolved.WorktreeDirectory)
 
@@ -323,7 +323,7 @@ func cleanEmptyParents(dir, stopAt string) {
 		if err != nil || len(entries) > 0 {
 			break
 		}
-		os.Remove(parent)
+		_ = os.Remove(parent)
 		parent = filepath.Dir(parent)
 	}
 }

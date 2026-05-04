@@ -59,7 +59,9 @@ func TestLoadGlobalFromFile(t *testing.T) {
 
 	data, _ := yaml.Marshal(cfg)
 	path := filepath.Join(dir, "config.yaml")
-	os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
 
 	loaded, err := LoadGlobalFrom(path)
 	if err != nil {
@@ -96,7 +98,9 @@ func TestLoadRepo(t *testing.T) {
 		},
 	}
 	data, _ := yaml.Marshal(repoConfig)
-	os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644)
+	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
 
 	layout, err := LoadRepo(dir)
 	if err != nil {
@@ -120,7 +124,9 @@ func TestLoadRepoLocalOverridesRepo(t *testing.T) {
 		},
 	}
 	data, _ := yaml.Marshal(repoConfig)
-	os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644)
+	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
 
 	localConfig := RepoConfig{
 		Layout: Layout{
@@ -129,7 +135,9 @@ func TestLoadRepoLocalOverridesRepo(t *testing.T) {
 		},
 	}
 	data, _ = yaml.Marshal(localConfig)
-	os.WriteFile(filepath.Join(dir, ".wktr.local.yaml"), data, 0o644)
+	if err := os.WriteFile(filepath.Join(dir, ".wktr.local.yaml"), data, 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
 
 	layout, err := LoadRepo(dir)
 	if err != nil {
@@ -146,7 +154,9 @@ func TestLoadRepoLocalOverridesRepo(t *testing.T) {
 func TestLoadRepoInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 
-	os.WriteFile(filepath.Join(dir, ".wktr.yaml"), []byte(":\tinvalid: {{yaml"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), []byte(":\tinvalid: {{yaml"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
 
 	_, err := LoadRepo(dir)
 	if err == nil {
@@ -160,7 +170,6 @@ func TestLoadRepoInvalidYAML(t *testing.T) {
 func TestLoadRepoInvalidLocalYAML(t *testing.T) {
 	dir := t.TempDir()
 
-	// Valid repo config
 	repoConfig := RepoConfig{
 		Layout: Layout{
 			Direction: "vertical",
@@ -168,10 +177,13 @@ func TestLoadRepoInvalidLocalYAML(t *testing.T) {
 		},
 	}
 	data, _ := yaml.Marshal(repoConfig)
-	os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644)
+	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
 
-	// Invalid local config
-	os.WriteFile(filepath.Join(dir, ".wktr.local.yaml"), []byte(":\tinvalid: {{yaml"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, ".wktr.local.yaml"), []byte(":\tinvalid: {{yaml"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
 
 	_, err := LoadRepo(dir)
 	if err == nil {
@@ -209,7 +221,9 @@ func TestResolve_Precedence(t *testing.T) {
 			},
 		}
 		data, _ := yaml.Marshal(rc)
-		os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644)
+		if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
 
 		resolved := Resolve(global, dir, "org/repo")
 		if resolved.Layout.Panes[0].Command != "file-cmd" {

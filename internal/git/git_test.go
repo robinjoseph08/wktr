@@ -122,7 +122,9 @@ func TestHasUncommittedChanges(t *testing.T) {
 		t.Error("expected clean repo to have no uncommitted changes")
 	}
 
-	os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("hello"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
 
 	if !HasUncommittedChanges(dir) {
 		t.Error("expected repo with new file to have uncommitted changes")
@@ -189,10 +191,14 @@ func initTestRepo(t *testing.T) string {
 	}
 
 	testFile := filepath.Join(dir, "README.md")
-	os.WriteFile(testFile, []byte("test"), 0o644)
+	if err := os.WriteFile(testFile, []byte("test"), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
 
 	cmd := exec.Command("git", "-C", dir, "add", ".")
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to git add: %v", err)
+	}
 	cmd = exec.Command("git", "-C", dir, "commit", "-m", "initial commit")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("failed to commit: %s", out)

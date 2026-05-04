@@ -55,8 +55,8 @@ func SetupPanes(windowName string, dir string, layout config.Layout) error {
 		}
 	}
 
-	exec.Command("tmux", "select-window", "-t", windowName).Run()
-	exec.Command("tmux", "select-pane", "-t", fmt.Sprintf("%s.%d", windowName, focusIdx)).Run()
+	_ = exec.Command("tmux", "select-window", "-t", windowName).Run()
+	_ = exec.Command("tmux", "select-pane", "-t", fmt.Sprintf("%s.%d", windowName, focusIdx)).Run()
 
 	return nil
 }
@@ -67,7 +67,7 @@ func KillWindow(windowName string) error {
 		return nil
 	}
 	cmd := exec.Command("tmux", "kill-window", "-t", target)
-	cmd.Run()
+	_ = cmd.Run()
 	return nil
 }
 
@@ -106,9 +106,9 @@ func sendPaneCommands(target string, pane config.Pane) {
 	}
 
 	if run {
-		exec.Command("tmux", "send-keys", "-t", target, pane.Command, "Enter").Run()
+		_ = exec.Command("tmux", "send-keys", "-t", target, pane.Command, "Enter").Run()
 	} else {
-		exec.Command("tmux", "send-keys", "-t", target, pane.Command).Run()
+		_ = exec.Command("tmux", "send-keys", "-t", target, pane.Command).Run()
 	}
 }
 
@@ -130,11 +130,11 @@ func sendMultipleCommands(target string, commands []config.Command) {
 
 	if len(runCmds) > 0 {
 		chained := strings.Join(runCmds, " && ")
-		exec.Command("tmux", "send-keys", "-t", target, chained, "Enter").Run()
+		_ = exec.Command("tmux", "send-keys", "-t", target, chained, "Enter").Run()
 	}
 
 	if primeCmd != "" {
-		exec.Command("tmux", "send-keys", "-t", target, primeCmd).Run()
+		_ = exec.Command("tmux", "send-keys", "-t", target, primeCmd).Run()
 	}
 }
 
