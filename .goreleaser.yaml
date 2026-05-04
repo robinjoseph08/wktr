@@ -17,6 +17,7 @@ brews:
   - repository:
       owner: robinjoseph08
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: https://github.com/robinjoseph08/wktr
     description: Manage git worktrees with tmux integration
     license: MIT
