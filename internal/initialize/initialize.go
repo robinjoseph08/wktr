@@ -54,6 +54,7 @@ func initGlobalConfig() (string, error) {
 	}
 
 	if exists {
+		fmt.Printf("Global config already exists at %s, skipping.\n\n", path)
 		return "", nil
 	}
 
@@ -262,11 +263,16 @@ func printSummary(writtenFiles []string) {
 	if len(writtenFiles) == 0 {
 		return
 	}
+	seen := make(map[string]bool)
 	fmt.Println()
 	fmt.Println("Configuration complete!")
 	fmt.Println()
 	fmt.Println("Files written:")
 	for _, f := range writtenFiles {
+		if seen[f] {
+			continue
+		}
+		seen[f] = true
 		fmt.Printf("  %s\n", f)
 	}
 	fmt.Println()

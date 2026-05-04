@@ -14,10 +14,9 @@ import (
 var errCancelled = errors.New("cancelled")
 
 var (
-	promptStyle   = lipgloss.NewStyle().Bold(true)
-	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	cursorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	dimStyle      = lipgloss.NewStyle().Faint(true)
+	promptStyle  = lipgloss.NewStyle().Bold(true)
+	accentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	dimStyle     = lipgloss.NewStyle().Faint(true)
 )
 
 // text input prompt
@@ -64,7 +63,7 @@ func (m textInputModel) View() string {
 		if value == "" {
 			value = m.textInput.Placeholder
 		}
-		return promptStyle.Render(m.label+": ") + selectedStyle.Render(value) + "\n"
+		return promptStyle.Render(m.label+": ") + accentStyle.Render(value) + "\n"
 	}
 	hint := ""
 	if m.textInput.Placeholder != "" {
@@ -98,10 +97,10 @@ func promptText(label string, defaultValue string) (string, error) {
 // select prompt
 
 type selectModel struct {
-	label   string
-	options []string
-	cursor  int
-	done    bool
+	label     string
+	options   []string
+	cursor    int
+	done      bool
 	cancelled bool
 }
 
@@ -123,10 +122,12 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor > 0 {
 				m.cursor--
 			}
+			return m, nil
 		case tea.KeyDown:
 			if m.cursor < len(m.options)-1 {
 				m.cursor++
 			}
+			return m, nil
 		}
 		switch msg.String() {
 		case "k":
@@ -144,13 +145,13 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m selectModel) View() string {
 	if m.done {
-		return promptStyle.Render(m.label+": ") + selectedStyle.Render(m.options[m.cursor]) + "\n"
+		return promptStyle.Render(m.label+": ") + accentStyle.Render(m.options[m.cursor]) + "\n"
 	}
 	var b strings.Builder
 	b.WriteString(promptStyle.Render(m.label+":") + "\n")
 	for i, opt := range m.options {
 		if i == m.cursor {
-			b.WriteString(cursorStyle.Render("  > " + opt) + "\n")
+			b.WriteString(accentStyle.Render("  > " + opt) + "\n")
 		} else {
 			b.WriteString("    " + opt + "\n")
 		}
@@ -228,7 +229,7 @@ func (m confirmModel) View() string {
 		if *m.value {
 			answer = "yes"
 		}
-		return promptStyle.Render(m.label+" "+hint+": ") + selectedStyle.Render(answer) + "\n"
+		return promptStyle.Render(m.label+" "+hint+": ") + accentStyle.Render(answer) + "\n"
 	}
 	return promptStyle.Render(m.label+" "+hint+": ")
 }
@@ -308,7 +309,7 @@ func (m numberInputModel) View() string {
 		if value == "" {
 			value = m.textInput.Placeholder
 		}
-		return promptStyle.Render(m.label+": ") + selectedStyle.Render(value) + "\n"
+		return promptStyle.Render(m.label+": ") + accentStyle.Render(value) + "\n"
 	}
 	hint := dimStyle.Render(fmt.Sprintf(" (default: %s, range: %d-%d)", m.textInput.Placeholder, m.min, m.max))
 	errMsg := ""
