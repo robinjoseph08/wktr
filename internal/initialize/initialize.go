@@ -239,7 +239,10 @@ func writeProjectConfig(loc configLocationType, repoRoot string, orgRepo git.Org
 		if err := config.AddGlobalRepoEntry(orgRepo.String(), rc); err != nil {
 			return "", fmt.Errorf("failed to add global repo entry: %w", err)
 		}
-		path, _ := config.GlobalConfigPath()
+		path, err := config.GlobalConfigPath()
+		if err != nil {
+			return "", err
+		}
 		fmt.Printf("\nAdded %s entry to %s\n", orgRepo, path)
 		return path, nil
 	}
