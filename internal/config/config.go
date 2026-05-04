@@ -58,12 +58,20 @@ func DefaultLayout() Layout {
 	}
 }
 
+func GlobalConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	return filepath.Join(home, ".config", "wktr", "config.yaml"), nil
+}
+
 func LoadGlobal() (GlobalConfig, error) {
-	configDir, err := os.UserConfigDir()
+	path, err := GlobalConfigPath()
 	if err != nil {
 		return DefaultGlobalConfig(), nil
 	}
-	return LoadGlobalFrom(filepath.Join(configDir, "wktr", "config.yaml"))
+	return LoadGlobalFrom(path)
 }
 
 func LoadGlobalFrom(path string) (GlobalConfig, error) {
