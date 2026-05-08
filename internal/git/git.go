@@ -85,7 +85,7 @@ func CreateWorktree(repoDir, worktreeDir, branchName, from string) error {
 func RemoveWorktree(repoDir, worktreeDir string) error {
 	cmd := exec.Command("git", "-C", repoDir, "worktree", "remove", "--force", worktreeDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		if _, statErr := os.Stat(worktreeDir); statErr != nil {
+		if _, statErr := os.Stat(worktreeDir); os.IsNotExist(statErr) {
 			return fmt.Errorf("failed to remove worktree: %s", strings.TrimSpace(string(out)))
 		}
 		if err := os.RemoveAll(worktreeDir); err != nil {
