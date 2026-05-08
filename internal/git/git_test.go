@@ -158,6 +158,33 @@ func TestCreateAndRemoveWorktree(t *testing.T) {
 	}
 }
 
+func TestRemoveWorktreeWithUntrackedFiles(t *testing.T) {
+	dir := initTestRepo(t)
+	worktreeDir := filepath.Join(t.TempDir(), "my-worktree")
+
+	if err := CreateWorktree(dir, worktreeDir, "wktr/dirty-task", ""); err != nil {
+		t.Fatalf("failed to create worktree: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(worktreeDir, "untracked.txt"), []byte("leftover"), 0o644); err != nil {
+		t.Fatalf("failed to write untracked file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(worktreeDir, "build", "cache"), 0o755); err != nil {
+		t.Fatalf("failed to create nested dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeDir, "build", "cache", "artifact"), []byte("data"), 0o644); err != nil {
+		t.Fatalf("failed to write nested file: %v", err)
+	}
+
+	if err := RemoveWorktree(dir, worktreeDir); err != nil {
+		t.Fatalf("expected RemoveWorktree to succeed with untracked files, got: %v", err)
+	}
+
+	if _, err := os.Stat(worktreeDir); !os.IsNotExist(err) {
+		t.Error("expected worktree directory to be removed")
+	}
+}
+
 func TestGetMainWorktree(t *testing.T) {
 	dir := initTestRepo(t)
 
