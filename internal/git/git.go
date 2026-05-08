@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -84,7 +85,16 @@ func CreateWorktree(repoDir, worktreeDir, branchName, from string) error {
 func RemoveWorktree(repoDir, worktreeDir string) error {
 	cmd := exec.Command("git", "-C", repoDir, "worktree", "remove", "--force", worktreeDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to remove worktree: %s", strings.TrimSpace(string(out)))
+		if _, statErr := os.Stat(worktreeDir); os.IsNotExist(statErr) {
+			return fmt.Errorf("failed to remove worktree: %s", strings.TrimSpace(string(out)))
+		}
+		if err := os.RemoveAll(worktreeDir); err != nil {
+			return fmt.Errorf("failed to remove worktree directory: %w", err)
+		}
+		pruneCmd := exec.Command("git", "-C", repoDir, "worktree", "prune")
+		if out, err := pruneCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to prune worktrees: %s", strings.TrimSpace(string(out)))
+		}
 	}
 	return nil
 }
