@@ -3,6 +3,8 @@ version: 2
 builds:
   - env:
       - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/robinjoseph08/wktr/internal/version.Version={{.Version}}
     goos:
       - linux
       - darwin
