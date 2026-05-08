@@ -1,6 +1,6 @@
 layout:
   direction: vertical
   panes:
-    - command: claude
+    - command: claude --dangerously-skip-permissions
       focus: true
     - {}
