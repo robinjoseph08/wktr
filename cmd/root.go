@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/robinjoseph08/wktr/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -15,7 +13,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.SetVersionTemplate(fmt.Sprintf("%s\n", version.Version))
+	rootCmd.SetVersionTemplate(version.Version + "\n")
 }
 
 func Execute() error {
