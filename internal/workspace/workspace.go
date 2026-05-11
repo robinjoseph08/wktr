@@ -22,6 +22,11 @@ type CreateOpts struct {
 	Dir  string
 }
 
+type ResumeOpts struct {
+	Name string
+	Dir  string
+}
+
 type RemoveOpts struct {
 	Name  string
 	Force bool
@@ -112,6 +117,73 @@ func Create(opts CreateOpts) error {
 	}
 
 	fmt.Printf("Task %q started in new tmux window\n", name)
+	return nil
+}
+
+func Resume(opts ResumeOpts) error {
+	if !tmux.InTmux() {
+		return fmt.Errorf("must be run inside a tmux session")
+	}
+
+	dir := opts.Dir
+	if dir == "" {
+		var err error
+		dir, err = os.Getwd()
+		if err != nil {
+			return err
+		}
+	}
+
+	mainWorktree, err := git.GetMainWorktree(dir)
+	if err != nil {
+		return err
+	}
+
+	orgRepo, err := git.GetOrgRepo(mainWorktree)
+	if err != nil {
+		return err
+	}
+
+	globalCfg, err := config.LoadGlobal()
+	if err != nil {
+		return fmt.Errorf("failed to load global config: %w", err)
+	}
+
+	resolved := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+
+	name := opts.Name
+	if name == "" {
+		name = inferTaskName(dir, resolved.WorktreeDirectory, orgRepo)
+		if name == "" {
+			return fmt.Errorf("no task name provided and not in a worktree directory")
+		}
+	} else if !validTaskName.MatchString(name) {
+		return fmt.Errorf("invalid task name %q: must start with alphanumeric and contain only alphanumeric, hyphens, or underscores", name)
+	}
+
+	worktreeDir := git.WorktreeDir(resolved.WorktreeDirectory, orgRepo, name)
+	if _, err := os.Stat(worktreeDir); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("worktree directory not found: %s — use `wktr create %s` to create it first", worktreeDir, name)
+		}
+		return fmt.Errorf("failed to access worktree directory: %w", err)
+	}
+
+	if tmux.WindowExists(name) {
+		fmt.Printf("Tmux window %q already exists, switching to it...\n", name)
+		return tmux.SelectWindow(name)
+	}
+
+	fmt.Println("Opening tmux window...")
+	if err := tmux.CreateWindow(name, worktreeDir); err != nil {
+		return err
+	}
+
+	if err := tmux.SetupPanes(name, worktreeDir, resolved.Layout); err != nil {
+		return err
+	}
+
+	fmt.Printf("Task %q resumed in new tmux window\n", name)
 	return nil
 }
 

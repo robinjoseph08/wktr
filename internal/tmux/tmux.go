@@ -61,6 +61,18 @@ func SetupPanes(windowName string, dir string, layout config.Layout) error {
 	return nil
 }
 
+func SelectWindow(name string) error {
+	target := FindWindow(name)
+	if target == "" {
+		return fmt.Errorf("tmux window %q not found", name)
+	}
+	cmd := exec.Command("tmux", "select-window", "-t", target)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to select tmux window: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func KillWindow(windowName string) error {
 	target := FindWindow(windowName)
 	if target == "" {
