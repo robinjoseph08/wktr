@@ -162,8 +162,11 @@ func Resume(opts ResumeOpts) error {
 	}
 
 	worktreeDir := git.WorktreeDir(resolved.WorktreeDirectory, orgRepo, name)
-	if _, err := os.Stat(worktreeDir); os.IsNotExist(err) {
-		return fmt.Errorf("worktree directory not found: %s — use `wktr create %s` to create it first", worktreeDir, name)
+	if _, err := os.Stat(worktreeDir); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("worktree directory not found: %s — use `wktr create %s` to create it first", worktreeDir, name)
+		}
+		return fmt.Errorf("failed to access worktree directory: %w", err)
 	}
 
 	if tmux.WindowExists(name) {
