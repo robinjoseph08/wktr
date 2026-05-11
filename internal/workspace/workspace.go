@@ -157,6 +157,8 @@ func Resume(opts ResumeOpts) error {
 		if name == "" {
 			return fmt.Errorf("no task name provided and not in a worktree directory")
 		}
+	} else if !validTaskName.MatchString(name) {
+		return fmt.Errorf("invalid task name %q: must start with alphanumeric and contain only alphanumeric, hyphens, or underscores", name)
 	}
 
 	worktreeDir := git.WorktreeDir(resolved.WorktreeDirectory, orgRepo, name)
