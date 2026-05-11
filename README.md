@@ -190,6 +190,20 @@ For example:
       new-feature/
 ```
 
+## Releasing
+
+Releases are automated via [GoReleaser](https://goreleaser.com/) and GitHub Actions. Pushing a version tag triggers the pipeline, which builds binaries for linux/darwin (amd64/arm64), creates a GitHub release, and updates the Homebrew tap.
+
+```bash
+# Tag the release
+git tag v0.2.0
+
+# Push the tag to trigger the release workflow
+git push origin v0.2.0
+```
+
+The workflow builds the binaries, publishes a GitHub release with archives, and opens a PR to [robinjoseph08/homebrew-tap](https://github.com/robinjoseph08/homebrew-tap) so `brew upgrade wktr` picks up the new version.
+
 ## Requirements
 
 - git
