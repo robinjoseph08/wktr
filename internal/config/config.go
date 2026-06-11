@@ -94,7 +94,7 @@ func LoadGlobalFrom(path string) (GlobalConfig, error) {
 
 	var fileCfg GlobalConfig
 	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
-		return cfg, err
+		return cfg, fmt.Errorf("invalid %s: %w", path, err)
 	}
 
 	if fileCfg.WorktreeDirectory != "" {

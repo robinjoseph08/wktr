@@ -115,6 +115,23 @@ default_layout:
 	}
 }
 
+func TestLoadGlobalFromInvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(":\tinvalid: {{yaml"), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := LoadGlobalFrom(path)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML, got nil")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("expected error to mention file path, got: %v", err)
+	}
+}
+
 func TestLoadGlobalFromLayoutDirection(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -249,6 +266,19 @@ func TestResolve_PerKeyFallthrough(t *testing.T) {
 			},
 			orgRepo:   "org/repo",
 			wantCmd:   "repo-cmd",
+			wantPanes: 1,
+		},
+		{
+			name: "repo config omitting layout falls through to global repos entry",
+			files: map[string]string{
+				".wktr.yaml": "# repo config, no layout key\n",
+			},
+			global: GlobalConfig{
+				Layout: globalLayout,
+				Repos:  map[string]RepoConfig{"org/repo": {Layout: reposEntryLayout}},
+			},
+			orgRepo:   "org/repo",
+			wantCmd:   "repos-entry-cmd",
 			wantPanes: 1,
 		},
 		{
