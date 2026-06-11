@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/robinjoseph08/wktr/internal/multiplexer"
 	"github.com/robinjoseph08/wktr/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +19,7 @@ var removeCmd = &cobra.Command{
 		if len(args) > 0 {
 			opts.Name = args[0]
 		}
-		return workspace.Remove(opts)
+		return workspace.Remove(multiplexer.NewTmux(), opts)
 	},
 }
 

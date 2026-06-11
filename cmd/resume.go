@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/robinjoseph08/wktr/internal/multiplexer"
 	"github.com/robinjoseph08/wktr/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -14,7 +15,7 @@ var resumeCmd = &cobra.Command{
 		if len(args) > 0 {
 			opts.Name = args[0]
 		}
-		return workspace.Resume(opts)
+		return workspace.Resume(multiplexer.NewTmux(), opts)
 	},
 }
 

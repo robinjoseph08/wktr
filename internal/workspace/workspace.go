@@ -11,7 +11,7 @@ import (
 
 	"github.com/robinjoseph08/wktr/internal/config"
 	"github.com/robinjoseph08/wktr/internal/git"
-	"github.com/robinjoseph08/wktr/internal/tmux"
+	"github.com/robinjoseph08/wktr/internal/multiplexer"
 )
 
 var validTaskName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
@@ -47,8 +47,8 @@ type WorktreeInfo struct {
 	HasChanges bool
 }
 
-func Create(opts CreateOpts) error {
-	if !tmux.InTmux() {
+func Create(mux multiplexer.Multiplexer, opts CreateOpts) error {
+	if !mux.Detect() {
 		return fmt.Errorf("must be run inside a tmux session")
 	}
 
@@ -111,11 +111,7 @@ func Create(opts CreateOpts) error {
 	}
 
 	fmt.Println("Opening tmux window...")
-	if err := tmux.CreateWindow(name, worktreeDir); err != nil {
-		return err
-	}
-
-	if err := tmux.SetupPanes(name, worktreeDir, resolved.Layout); err != nil {
+	if err := mux.OpenWindow(name, worktreeDir, resolved.Layout); err != nil {
 		return err
 	}
 
@@ -123,8 +119,8 @@ func Create(opts CreateOpts) error {
 	return nil
 }
 
-func Resume(opts ResumeOpts) error {
-	if !tmux.InTmux() {
+func Resume(mux multiplexer.Multiplexer, opts ResumeOpts) error {
+	if !mux.Detect() {
 		return fmt.Errorf("must be run inside a tmux session")
 	}
 
@@ -175,17 +171,13 @@ func Resume(opts ResumeOpts) error {
 		return fmt.Errorf("failed to access worktree directory: %w", err)
 	}
 
-	if tmux.WindowExists(name) {
+	if mux.WindowExists(name) {
 		fmt.Printf("Tmux window %q already exists, switching to it...\n", name)
-		return tmux.SelectWindow(name)
+		return mux.FocusWindow(name)
 	}
 
 	fmt.Println("Opening tmux window...")
-	if err := tmux.CreateWindow(name, worktreeDir); err != nil {
-		return err
-	}
-
-	if err := tmux.SetupPanes(name, worktreeDir, resolved.Layout); err != nil {
+	if err := mux.OpenWindow(name, worktreeDir, resolved.Layout); err != nil {
 		return err
 	}
 
@@ -193,7 +185,7 @@ func Resume(opts ResumeOpts) error {
 	return nil
 }
 
-func Remove(opts RemoveOpts) error {
+func Remove(mux multiplexer.Multiplexer, opts RemoveOpts) error {
 	dir := opts.Dir
 	if dir == "" {
 		var err error
@@ -261,7 +253,7 @@ func Remove(opts RemoveOpts) error {
 		return err
 	}
 
-	_ = tmux.KillWindow(name)
+	mux.KillWindow(name)
 
 	cleanEmptyParents(worktreeDir, globalCfg.WorktreeDirectory)
 
@@ -269,7 +261,7 @@ func Remove(opts RemoveOpts) error {
 	return nil
 }
 
-func List(opts ListOpts) ([]WorktreeInfo, error) {
+func List(mux multiplexer.Multiplexer, opts ListOpts) ([]WorktreeInfo, error) {
 	dir := opts.Dir
 	if dir == "" {
 		var err error
@@ -287,7 +279,7 @@ func List(opts ListOpts) ([]WorktreeInfo, error) {
 	base := globalCfg.WorktreeDirectory
 
 	if opts.All {
-		return listAll(base, globalCfg.BranchPrefix)
+		return listAll(mux, base, globalCfg.BranchPrefix)
 	}
 
 	mainWorktree, err := git.GetMainWorktree(dir)
@@ -300,10 +292,10 @@ func List(opts ListOpts) ([]WorktreeInfo, error) {
 		return nil, err
 	}
 
-	return listRepo(base, orgRepo, globalCfg.BranchPrefix)
+	return listRepo(mux, base, orgRepo, globalCfg.BranchPrefix)
 }
 
-func listRepo(base string, orgRepo git.OrgRepo, prefix string) ([]WorktreeInfo, error) {
+func listRepo(mux multiplexer.Multiplexer, base string, orgRepo git.OrgRepo, prefix string) ([]WorktreeInfo, error) {
 	repoDir := filepath.Join(base, orgRepo.Org, orgRepo.Repo)
 	entries, err := os.ReadDir(repoDir)
 	if err != nil {
@@ -323,14 +315,14 @@ func listRepo(base string, orgRepo git.OrgRepo, prefix string) ([]WorktreeInfo, 
 			Name:      name,
 			Branch:    prefix + name,
 			Dir:       filepath.Join(repoDir, name),
-			HasWindow: tmux.WindowExists(name),
+			HasWindow: mux.WindowExists(name),
 			OrgRepo:   orgRepo.String(),
 		})
 	}
 	return infos, nil
 }
 
-func listAll(base string, prefix string) ([]WorktreeInfo, error) {
+func listAll(mux multiplexer.Multiplexer, base string, prefix string) ([]WorktreeInfo, error) {
 	var infos []WorktreeInfo
 
 	orgs, err := os.ReadDir(base)
@@ -354,7 +346,7 @@ func listAll(base string, prefix string) ([]WorktreeInfo, error) {
 				continue
 			}
 			orgRepo := git.OrgRepo{Org: org.Name(), Repo: repo.Name()}
-			repoInfos, err := listRepo(base, orgRepo, prefix)
+			repoInfos, err := listRepo(mux, base, orgRepo, prefix)
 			if err != nil {
 				continue
 			}
