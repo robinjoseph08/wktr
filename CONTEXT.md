@@ -59,4 +59,4 @@ The `.wktr.local.yaml` at a repo's root, holding personal machine-specific overr
 
 ## Status
 
-Parts of this model are decided (see `docs/adr/`) but not yet implemented: herdr as a Multiplexer, per-key config resolution, Tasks open in more than one Multiplexer, and honoring a Layout's direction. The code currently drives tmux only.
+Parts of this model are decided (see `docs/adr/`) but not yet implemented: herdr as a Multiplexer, per-key config resolution (including the `default_layout` to `layout` rename), Tasks open in more than one Multiplexer, and honoring a Layout's direction. The code currently drives tmux only.
