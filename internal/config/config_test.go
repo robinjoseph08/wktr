@@ -242,6 +242,223 @@ func layoutYAML(command string) string {
 	return "layout:\n  direction: vertical\n  panes:\n    - command: \"" + command + "\"\n"
 }
 
+func TestLoadGlobalFromMultiplexer(t *testing.T) {
+	tests := []struct {
+		name        string
+		yamlData    string
+		wantErrSubs []string
+		want        string
+	}{
+		{
+			name:     "tmux is valid",
+			yamlData: "multiplexer: tmux\n",
+			want:     "tmux",
+		},
+		{
+			name:     "herdr is valid",
+			yamlData: "multiplexer: herdr\n",
+			want:     "herdr",
+		},
+		{
+			name:     "auto is valid",
+			yamlData: "multiplexer: auto\n",
+			want:     "auto",
+		},
+		{
+			name:     "omitted is valid",
+			yamlData: "branch_prefix: feat/\n",
+			want:     "",
+		},
+		{
+			name:        "invalid value at top level",
+			yamlData:    "multiplexer: screen\n",
+			wantErrSubs: []string{`"screen"`, "tmux", "herdr", "auto"},
+		},
+		{
+			name:        "invalid value in repos entry",
+			yamlData:    "repos:\n  org/repo:\n    multiplexer: zellij\n",
+			wantErrSubs: []string{`"zellij"`, "tmux", "herdr", "auto", `"org/repo"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			if err := os.WriteFile(path, []byte(tt.yamlData), 0o644); err != nil {
+				t.Fatalf("failed to write config: %v", err)
+			}
+
+			loaded, err := LoadGlobalFrom(path)
+			if len(tt.wantErrSubs) == 0 {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if loaded.Multiplexer != tt.want {
+					t.Errorf("expected multiplexer %q, got %q", tt.want, loaded.Multiplexer)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected error for invalid multiplexer, got nil")
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("expected error to mention file path, got: %v", err)
+			}
+			for _, sub := range tt.wantErrSubs {
+				if !strings.Contains(err.Error(), sub) {
+					t.Errorf("expected error to contain %q, got: %v", sub, err)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadGlobalFromMultiplexerInReposEntry(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yamlData := "repos:\n  org/repo:\n    multiplexer: herdr\n"
+	if err := os.WriteFile(path, []byte(yamlData), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := LoadGlobalFrom(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := loaded.Repos["org/repo"].Multiplexer; got != "herdr" {
+		t.Errorf("expected repos entry multiplexer %q, got %q", "herdr", got)
+	}
+}
+
+func TestResolve_MultiplexerFallthrough(t *testing.T) {
+	tests := []struct {
+		name    string
+		files   map[string]string
+		global  GlobalConfig
+		orgRepo string
+		want    string
+	}{
+		{
+			name: "local config wins over all levels",
+			files: map[string]string{
+				".wktr.local.yaml": "multiplexer: herdr\n",
+				".wktr.yaml":       "multiplexer: tmux\n",
+			},
+			global: GlobalConfig{
+				Multiplexer: "tmux",
+				Repos:       map[string]RepoConfig{"org/repo": {Multiplexer: "tmux"}},
+			},
+			orgRepo: "org/repo",
+			want:    "herdr",
+		},
+		{
+			name: "local config omitting the key falls through to repo config",
+			files: map[string]string{
+				".wktr.local.yaml": layoutYAML("local-cmd"),
+				".wktr.yaml":       "multiplexer: herdr\n",
+			},
+			global: GlobalConfig{
+				Multiplexer: "tmux",
+				Repos:       map[string]RepoConfig{"org/repo": {Multiplexer: "tmux"}},
+			},
+			orgRepo: "org/repo",
+			want:    "herdr",
+		},
+		{
+			name: "repo config omitting the key falls through to global repos entry",
+			files: map[string]string{
+				".wktr.yaml": layoutYAML("repo-cmd"),
+			},
+			global: GlobalConfig{
+				Multiplexer: "tmux",
+				Repos:       map[string]RepoConfig{"org/repo": {Multiplexer: "herdr"}},
+			},
+			orgRepo: "org/repo",
+			want:    "herdr",
+		},
+		{
+			name: "repos entry omitting the key falls through to global top level",
+			global: GlobalConfig{
+				Multiplexer: "herdr",
+				Repos:       map[string]RepoConfig{"org/repo": {}},
+			},
+			orgRepo: "org/repo",
+			want:    "herdr",
+		},
+		{
+			name:    "nothing set falls through to the auto default",
+			global:  GlobalConfig{},
+			orgRepo: "org/repo",
+			want:    "auto",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+					t.Fatalf("failed to write %s: %v", name, err)
+				}
+			}
+
+			resolved, err := Resolve(tt.global, dir, tt.orgRepo)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resolved.Multiplexer != tt.want {
+				t.Errorf("expected multiplexer %q, got %q", tt.want, resolved.Multiplexer)
+			}
+		})
+	}
+}
+
+func TestResolve_InvalidMultiplexerInRepoFiles(t *testing.T) {
+	tests := []struct {
+		name        string
+		files       map[string]string
+		wantErrSubs []string
+	}{
+		{
+			name: "invalid multiplexer in repo config",
+			files: map[string]string{
+				".wktr.yaml": "multiplexer: screen\n",
+			},
+			wantErrSubs: []string{".wktr.yaml", `"screen"`, "tmux", "herdr", "auto"},
+		},
+		{
+			name: "invalid multiplexer in local config",
+			files: map[string]string{
+				".wktr.local.yaml": "multiplexer: zellij\n",
+				".wktr.yaml":       "multiplexer: tmux\n",
+			},
+			wantErrSubs: []string{".wktr.local.yaml", `"zellij"`, "tmux", "herdr", "auto"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+					t.Fatalf("failed to write %s: %v", name, err)
+				}
+			}
+
+			_, err := Resolve(GlobalConfig{}, dir, "org/repo")
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			for _, sub := range tt.wantErrSubs {
+				if !strings.Contains(err.Error(), sub) {
+					t.Errorf("expected error to contain %q, got: %v", sub, err)
+				}
+			}
+		})
+	}
+}
+
 func TestResolve_PerKeyFallthrough(t *testing.T) {
 	globalLayout := &Layout{
 		Direction: "vertical",

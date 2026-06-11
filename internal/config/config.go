@@ -27,13 +27,15 @@ type Layout struct {
 }
 
 type RepoConfig struct {
-	Layout *Layout `yaml:"layout,omitempty"`
+	Layout      *Layout `yaml:"layout,omitempty"`
+	Multiplexer string  `yaml:"multiplexer,omitempty"`
 }
 
 type GlobalConfig struct {
 	WorktreeDirectory string                `yaml:"worktree_directory"`
 	BranchPrefix      string                `yaml:"branch_prefix"`
 	Layout            *Layout               `yaml:"layout,omitempty"`
+	Multiplexer       string                `yaml:"multiplexer,omitempty"`
 	Repos             map[string]RepoConfig `yaml:"repos,omitempty"`
 }
 
@@ -41,7 +43,12 @@ type ResolvedConfig struct {
 	WorktreeDirectory string
 	BranchPrefix      string
 	Layout            Layout
+	Multiplexer       string
 }
+
+// DefaultMultiplexer is the built-in multiplexer value when no config level
+// sets one: auto-detect the Multiplexer wktr is running inside.
+const DefaultMultiplexer = "auto"
 
 func DefaultGlobalConfig() GlobalConfig {
 	home, _ := os.UserHomeDir()
@@ -108,6 +115,9 @@ func LoadGlobalFrom(path string) (GlobalConfig, error) {
 	if fileCfg.Layout != nil {
 		cfg.Layout = fileCfg.Layout
 	}
+	if fileCfg.Multiplexer != "" {
+		cfg.Multiplexer = fileCfg.Multiplexer
+	}
 	if fileCfg.Repos != nil {
 		cfg.Repos = fileCfg.Repos
 	}
@@ -115,8 +125,14 @@ func LoadGlobalFrom(path string) (GlobalConfig, error) {
 	if err := validateLayout(cfg.Layout); err != nil {
 		return cfg, fmt.Errorf("invalid %s: %w", path, err)
 	}
+	if err := validateMultiplexer(cfg.Multiplexer); err != nil {
+		return cfg, fmt.Errorf("invalid %s: %w", path, err)
+	}
 	for orgRepo, rc := range cfg.Repos {
 		if err := validateLayout(rc.Layout); err != nil {
+			return cfg, fmt.Errorf("invalid %s: repos entry %q: %w", path, orgRepo, err)
+		}
+		if err := validateMultiplexer(rc.Multiplexer); err != nil {
 			return cfg, fmt.Errorf("invalid %s: repos entry %q: %w", path, orgRepo, err)
 		}
 	}
@@ -142,6 +158,7 @@ func Resolve(global GlobalConfig, repoDir string, orgRepo string) (ResolvedConfi
 		WorktreeDirectory: global.WorktreeDirectory,
 		BranchPrefix:      global.BranchPrefix,
 		Layout:            resolveLayout(local.Layout, repo.Layout, global.Repos[orgRepo].Layout, global.Layout),
+		Multiplexer:       resolveMultiplexer(local.Multiplexer, repo.Multiplexer, global.Repos[orgRepo].Multiplexer, global.Multiplexer),
 	}, nil
 }
 
@@ -154,6 +171,17 @@ func resolveLayout(levels ...*Layout) Layout {
 		}
 	}
 	return DefaultLayout()
+}
+
+// resolveMultiplexer picks the first level that sets a multiplexer, falling
+// through to the auto default.
+func resolveMultiplexer(levels ...string) string {
+	for _, value := range levels {
+		if value != "" {
+			return value
+		}
+	}
+	return DefaultMultiplexer
 }
 
 func loadRepoFile(path string) (RepoConfig, error) {
@@ -173,6 +201,9 @@ func loadRepoFile(path string) (RepoConfig, error) {
 	if err := validateLayout(rc.Layout); err != nil {
 		return RepoConfig{}, fmt.Errorf("invalid %s: %w", path, err)
 	}
+	if err := validateMultiplexer(rc.Multiplexer); err != nil {
+		return RepoConfig{}, fmt.Errorf("invalid %s: %w", path, err)
+	}
 
 	return rc, nil
 }
@@ -186,6 +217,15 @@ func validateLayout(layout *Layout) error {
 		return nil
 	default:
 		return fmt.Errorf("invalid layout direction %q (must be %q or %q)", layout.Direction, "vertical", "horizontal")
+	}
+}
+
+func validateMultiplexer(value string) error {
+	switch value {
+	case "", "tmux", "herdr", "auto":
+		return nil
+	default:
+		return fmt.Errorf("invalid multiplexer %q (must be %q, %q, or %q)", value, "tmux", "herdr", "auto")
 	}
 }
 

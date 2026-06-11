@@ -47,11 +47,12 @@ type WorktreeInfo struct {
 	HasChanges bool
 }
 
-func Create(mux multiplexer.Multiplexer, opts CreateOpts) error {
-	if !mux.Detect() {
-		return fmt.Errorf("must be run inside a tmux session")
-	}
+// MultiplexerSelector picks the Multiplexer backend for a resolved
+// multiplexer config value. Only Create and Resume resolve the setting
+// (ADR-0002); Remove and List never do.
+type MultiplexerSelector func(value string) (multiplexer.Multiplexer, error)
 
+func Create(selectMux MultiplexerSelector, opts CreateOpts) error {
 	dir := opts.Dir
 	if dir == "" {
 		var err error
@@ -77,6 +78,11 @@ func Create(mux multiplexer.Multiplexer, opts CreateOpts) error {
 	}
 
 	resolved, err := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	if err != nil {
+		return err
+	}
+
+	mux, err := selectMux(resolved.Multiplexer)
 	if err != nil {
 		return err
 	}
@@ -96,7 +102,7 @@ func Create(mux multiplexer.Multiplexer, opts CreateOpts) error {
 
 	branchName := resolved.BranchPrefix + name
 	if opts.Name != "" && git.BranchExists(mainWorktree, branchName) {
-		return fmt.Errorf("branch %q already exists — use a different name or run `wktr remove %s` first", branchName, name)
+		return fmt.Errorf("branch %q already exists; use a different name or run `wktr remove %s` first", branchName, name)
 	}
 
 	worktreeDir := git.WorktreeDir(resolved.WorktreeDirectory, orgRepo, name)
@@ -110,20 +116,16 @@ func Create(mux multiplexer.Multiplexer, opts CreateOpts) error {
 		return err
 	}
 
-	fmt.Println("Opening tmux window...")
+	fmt.Println("Opening window...")
 	if err := mux.OpenWindow(name, worktreeDir, resolved.Layout); err != nil {
 		return err
 	}
 
-	fmt.Printf("Task %q started in new tmux window\n", name)
+	fmt.Printf("Task %q started in a new window\n", name)
 	return nil
 }
 
-func Resume(mux multiplexer.Multiplexer, opts ResumeOpts) error {
-	if !mux.Detect() {
-		return fmt.Errorf("must be run inside a tmux session")
-	}
-
+func Resume(selectMux MultiplexerSelector, opts ResumeOpts) error {
 	dir := opts.Dir
 	if dir == "" {
 		var err error
@@ -153,6 +155,11 @@ func Resume(mux multiplexer.Multiplexer, opts ResumeOpts) error {
 		return err
 	}
 
+	mux, err := selectMux(resolved.Multiplexer)
+	if err != nil {
+		return err
+	}
+
 	name := opts.Name
 	if name == "" {
 		name = inferTaskName(dir, resolved.WorktreeDirectory, orgRepo)
@@ -166,22 +173,22 @@ func Resume(mux multiplexer.Multiplexer, opts ResumeOpts) error {
 	worktreeDir := git.WorktreeDir(resolved.WorktreeDirectory, orgRepo, name)
 	if _, err := os.Stat(worktreeDir); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("worktree directory not found: %s — use `wktr create %s` to create it first", worktreeDir, name)
+			return fmt.Errorf("worktree directory not found: %s; use `wktr create %s` to create it first", worktreeDir, name)
 		}
 		return fmt.Errorf("failed to access worktree directory: %w", err)
 	}
 
 	if mux.WindowExists(name) {
-		fmt.Printf("Tmux window %q already exists, switching to it...\n", name)
+		fmt.Printf("Window %q already exists, switching to it...\n", name)
 		return mux.FocusWindow(name)
 	}
 
-	fmt.Println("Opening tmux window...")
+	fmt.Println("Opening window...")
 	if err := mux.OpenWindow(name, worktreeDir, resolved.Layout); err != nil {
 		return err
 	}
 
-	fmt.Printf("Task %q resumed in new tmux window\n", name)
+	fmt.Printf("Task %q resumed in a new window\n", name)
 	return nil
 }
 

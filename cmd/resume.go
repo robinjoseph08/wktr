@@ -8,14 +8,14 @@ import (
 
 var resumeCmd = &cobra.Command{
 	Use:   "resume [name]",
-	Short: "Open a tmux window for an existing worktree",
+	Short: "Open a window for an existing worktree",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var opts workspace.ResumeOpts
 		if len(args) > 0 {
 			opts.Name = args[0]
 		}
-		return workspace.Resume(multiplexer.NewTmux(), opts)
+		return workspace.Resume(multiplexer.SelectFromEnv, opts)
 	},
 }
 

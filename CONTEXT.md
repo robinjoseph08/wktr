@@ -14,7 +14,7 @@ _Avoid_: checkout, clone
 
 **Window**:
 The Multiplexer surface opened for a Task, holding its Panes.
-_Avoid_: tab (herdr's word for its realization of a Window)
+_Avoid_: tab (herdr's word for its realization of a Window). One carve-out: herdr backend error messages and docs explaining the herdr mapping say "tab" because they describe the concrete herdr surface, and herdr has its own unrelated window concept that "herdr window" would collide with.
 
 **Multiplexer**:
 The terminal program (tmux or herdr) that hosts Windows.
@@ -59,4 +59,4 @@ The `.wktr.local.yaml` at a repo's root, holding personal machine-specific overr
 
 ## Status
 
-Parts of this model are decided (see `docs/adr/`) but not yet implemented: herdr as a Multiplexer, Tasks open in more than one Multiplexer, and honoring a Layout's direction (direction is validated at load but not yet applied). The code currently drives tmux only.
+Parts of this model are decided (see `docs/adr/`) but not yet implemented: applying a Layout in herdr (a Window opened in herdr has only its single default Pane), Multiplexer-agnostic cleanup (`remove` and `list` only see tmux Windows today, so a Task open in both Multiplexers is only partly cleaned up), and honoring a Layout's direction (direction is validated at load but not yet applied). `create` and `resume` select between tmux and herdr per ADR-0002.

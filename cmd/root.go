@@ -7,8 +7,8 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:     "wktr",
-	Short:   "Manage git worktrees with tmux integration",
-	Long:    "A CLI tool to create, list, and remove git worktrees with automatic tmux window and pane configuration.",
+	Short:   "Manage git worktrees with terminal multiplexer integration",
+	Long:    "A CLI tool to create, list, and remove git worktrees with automatic window and pane configuration in your terminal multiplexer (tmux or herdr).",
 	Version: version.Version,
 }
 
