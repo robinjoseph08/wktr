@@ -120,7 +120,7 @@ func initProjectConfig() (string, error) {
 		return "", err
 	}
 
-	rc := config.RepoConfig{Layout: layout}
+	rc := config.RepoConfig{Layout: &layout}
 	return writeProjectConfig(configLocation, repoRoot, orgRepo, rc)
 }
 

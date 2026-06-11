@@ -76,7 +76,10 @@ func Create(opts CreateOpts) error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
-	resolved := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	resolved, err := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	if err != nil {
+		return err
+	}
 
 	name := opts.Name
 	if name != "" {
@@ -149,7 +152,10 @@ func Resume(opts ResumeOpts) error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
-	resolved := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	resolved, err := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	if err != nil {
+		return err
+	}
 
 	name := opts.Name
 	if name == "" {
@@ -207,22 +213,23 @@ func Remove(opts RemoveOpts) error {
 		return err
 	}
 
+	// Remove only needs global-only keys, so it skips Resolve. This keeps
+	// removal working even when a repo's .wktr.yaml or .wktr.local.yaml is
+	// invalid, since removal never reads the layout.
 	globalCfg, err := config.LoadGlobal()
 	if err != nil {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
-	resolved := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
-
 	name := opts.Name
 	if name == "" {
-		name = inferTaskName(dir, resolved.WorktreeDirectory, orgRepo)
+		name = inferTaskName(dir, globalCfg.WorktreeDirectory, orgRepo)
 		if name == "" {
 			return fmt.Errorf("no task name provided and not in a worktree directory")
 		}
 	}
 
-	worktreeDir := git.WorktreeDir(resolved.WorktreeDirectory, orgRepo, name)
+	worktreeDir := git.WorktreeDir(globalCfg.WorktreeDirectory, orgRepo, name)
 	if _, err := os.Stat(worktreeDir); os.IsNotExist(err) {
 		return fmt.Errorf("worktree directory not found: %s", worktreeDir)
 	}
@@ -246,7 +253,7 @@ func Remove(opts RemoveOpts) error {
 
 	fmt.Printf("Removing task %q...\n", name)
 
-	branchName := resolved.BranchPrefix + name
+	branchName := globalCfg.BranchPrefix + name
 	if err := git.RemoveWorktree(mainWorktree, worktreeDir); err != nil {
 		return err
 	}
@@ -256,7 +263,7 @@ func Remove(opts RemoveOpts) error {
 
 	_ = tmux.KillWindow(name)
 
-	cleanEmptyParents(worktreeDir, resolved.WorktreeDirectory)
+	cleanEmptyParents(worktreeDir, globalCfg.WorktreeDirectory)
 
 	fmt.Printf("Task %q removed\n", name)
 	return nil

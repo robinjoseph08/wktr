@@ -14,9 +14,9 @@ import (
 var errCancelled = errors.New("cancelled")
 
 var (
-	promptStyle  = lipgloss.NewStyle().Bold(true)
-	accentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	dimStyle     = lipgloss.NewStyle().Faint(true)
+	promptStyle = lipgloss.NewStyle().Bold(true)
+	accentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	dimStyle    = lipgloss.NewStyle().Faint(true)
 )
 
 // text input prompt
@@ -151,7 +151,7 @@ func (m selectModel) View() string {
 	b.WriteString(promptStyle.Render(m.label+":") + "\n")
 	for i, opt := range m.options {
 		if i == m.cursor {
-			b.WriteString(accentStyle.Render("  > " + opt) + "\n")
+			b.WriteString(accentStyle.Render("  > "+opt) + "\n")
 		} else {
 			b.WriteString("    " + opt + "\n")
 		}
@@ -231,7 +231,7 @@ func (m confirmModel) View() string {
 		}
 		return promptStyle.Render(m.label+" "+hint+": ") + accentStyle.Render(answer) + "\n"
 	}
-	return promptStyle.Render(m.label+" "+hint+": ")
+	return promptStyle.Render(m.label + " " + hint + ": ")
 }
 
 func promptConfirm(label string, defaultYes bool) (bool, error) {
@@ -314,7 +314,7 @@ func (m numberInputModel) View() string {
 	hint := dimStyle.Render(fmt.Sprintf(" (default: %s, range: %d-%d)", m.textInput.Placeholder, m.min, m.max))
 	errMsg := ""
 	if m.err != "" {
-		errMsg = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("  " + m.err) + "\n"
+		errMsg = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("  "+m.err) + "\n"
 	}
 	return promptStyle.Render(m.label+":") + hint + "\n" + m.textInput.View() + "\n" + errMsg
 }

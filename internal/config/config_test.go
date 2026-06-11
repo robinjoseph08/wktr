@@ -39,7 +39,7 @@ func TestLoadGlobalFromFile(t *testing.T) {
 	cfg := GlobalConfig{
 		WorktreeDirectory: "/custom/path",
 		BranchPrefix:      "feat/",
-		DefaultLayout: &Layout{
+		Layout: &Layout{
 			Direction: "vertical",
 			Panes: []Pane{
 				{Command: "echo hello"},
@@ -47,7 +47,7 @@ func TestLoadGlobalFromFile(t *testing.T) {
 		},
 		Repos: map[string]RepoConfig{
 			"org/repo": {
-				Layout: Layout{
+				Layout: &Layout{
 					Direction: "vertical",
 					Panes: []Pane{
 						{Command: "npm start"},
@@ -74,193 +74,399 @@ func TestLoadGlobalFromFile(t *testing.T) {
 	if loaded.BranchPrefix != "feat/" {
 		t.Errorf("expected branch_prefix %q, got %q", "feat/", loaded.BranchPrefix)
 	}
-	if loaded.DefaultLayout == nil {
-		t.Fatal("expected default_layout to be set")
+	if loaded.Layout == nil {
+		t.Fatal("expected layout to be set")
 	}
-	if len(loaded.DefaultLayout.Panes) != 1 {
-		t.Errorf("expected 1 pane in default_layout, got %d", len(loaded.DefaultLayout.Panes))
+	if len(loaded.Layout.Panes) != 1 {
+		t.Errorf("expected 1 pane in layout, got %d", len(loaded.Layout.Panes))
 	}
 	if _, ok := loaded.Repos["org/repo"]; !ok {
 		t.Error("expected repos to contain org/repo")
 	}
 }
 
-func TestLoadRepo(t *testing.T) {
-	dir := t.TempDir()
-
-	repoConfig := RepoConfig{
-		Layout: Layout{
-			Direction: "vertical",
-			Panes: []Pane{
-				{Command: "make build"},
-				{Command: "make test"},
-			},
+func TestLoadGlobalFromDefaultLayoutRename(t *testing.T) {
+	tests := []struct {
+		name     string
+		yamlData string
+	}{
+		{
+			name: "default_layout with a value",
+			yamlData: `
+worktree_directory: /custom/path
+default_layout:
+  direction: vertical
+  panes:
+    - command: "echo hello"
+`,
+		},
+		{
+			name: "default_layout with a null value",
+			yamlData: `
+worktree_directory: /custom/path
+default_layout:
+`,
 		},
 	}
-	data, _ := yaml.Marshal(repoConfig)
-	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
-	}
 
-	layout, err := LoadRepo(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if layout == nil {
-		t.Fatal("expected layout to be loaded")
-	}
-	if len(layout.Panes) != 2 {
-		t.Errorf("expected 2 panes, got %d", len(layout.Panes))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+
+			if err := os.WriteFile(path, []byte(tt.yamlData), 0o644); err != nil {
+				t.Fatalf("failed to write config: %v", err)
+			}
+
+			_, err := LoadGlobalFrom(path)
+			if err == nil {
+				t.Fatal("expected error for default_layout key, got nil")
+			}
+			if !strings.Contains(err.Error(), "default_layout") {
+				t.Errorf("expected error to mention default_layout, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), `renamed to "layout"`) {
+				t.Errorf("expected error to name the rename to layout, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("expected error to mention file path, got: %v", err)
+			}
+		})
 	}
 }
 
-func TestLoadRepoLocalOverridesRepo(t *testing.T) {
+func TestLoadGlobalFromInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
 
-	repoConfig := RepoConfig{
-		Layout: Layout{
-			Direction: "vertical",
-			Panes:    []Pane{{Command: "repo-command"}},
-		},
-	}
-	data, _ := yaml.Marshal(repoConfig)
-	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
+	if err := os.WriteFile(path, []byte(":\tinvalid: {{yaml"), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
 	}
 
-	localConfig := RepoConfig{
-		Layout: Layout{
-			Direction: "vertical",
-			Panes:    []Pane{{Command: "local-command"}},
-		},
-	}
-	data, _ = yaml.Marshal(localConfig)
-	if err := os.WriteFile(filepath.Join(dir, ".wktr.local.yaml"), data, 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
-	}
-
-	layout, err := LoadRepo(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if layout == nil {
-		t.Fatal("expected layout to be loaded")
-	}
-	if layout.Panes[0].Command != "local-command" {
-		t.Errorf("expected local config to win, got command %q", layout.Panes[0].Command)
-	}
-}
-
-func TestLoadRepoInvalidYAML(t *testing.T) {
-	dir := t.TempDir()
-
-	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), []byte(":\tinvalid: {{yaml"), 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
-	}
-
-	_, err := LoadRepo(dir)
+	_, err := LoadGlobalFrom(path)
 	if err == nil {
 		t.Fatal("expected error for invalid YAML, got nil")
 	}
-	if !strings.Contains(err.Error(), ".wktr.yaml") {
+	if !strings.Contains(err.Error(), path) {
 		t.Errorf("expected error to mention file path, got: %v", err)
 	}
 }
 
-func TestLoadRepoInvalidLocalYAML(t *testing.T) {
-	dir := t.TempDir()
-
-	repoConfig := RepoConfig{
-		Layout: Layout{
-			Direction: "vertical",
-			Panes:    []Pane{{Command: "repo-command"}},
+func TestLoadGlobalFromLayoutDirection(t *testing.T) {
+	tests := []struct {
+		name        string
+		yamlData    string
+		wantErrSubs []string
+	}{
+		{
+			name: "invalid direction in top-level layout",
+			yamlData: `
+layout:
+  direction: diagonal
+  panes:
+    - command: "echo hello"
+`,
+			wantErrSubs: []string{`"diagonal"`, "vertical", "horizontal"},
+		},
+		{
+			name: "invalid direction in repos entry layout",
+			yamlData: `
+repos:
+  org/repo:
+    layout:
+      direction: sideways
+      panes:
+        - command: "echo hello"
+`,
+			wantErrSubs: []string{`"sideways"`, "vertical", "horizontal"},
+		},
+		{
+			name: "vertical direction is valid",
+			yamlData: `
+layout:
+  direction: vertical
+  panes:
+    - command: "echo hello"
+`,
+		},
+		{
+			name: "horizontal direction is valid",
+			yamlData: `
+layout:
+  direction: horizontal
+  panes:
+    - command: "echo hello"
+`,
+		},
+		{
+			name: "omitted direction is valid",
+			yamlData: `
+layout:
+  panes:
+    - command: "echo hello"
+`,
 		},
 	}
-	data, _ := yaml.Marshal(repoConfig)
-	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
-	}
 
-	if err := os.WriteFile(filepath.Join(dir, ".wktr.local.yaml"), []byte(":\tinvalid: {{yaml"), 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			if err := os.WriteFile(path, []byte(tt.yamlData), 0o644); err != nil {
+				t.Fatalf("failed to write config: %v", err)
+			}
 
-	_, err := LoadRepo(dir)
-	if err == nil {
-		t.Fatal("expected error for invalid local YAML, got nil")
-	}
-	if !strings.Contains(err.Error(), ".wktr.local.yaml") {
-		t.Errorf("expected error to mention local file path, got: %v", err)
+			_, err := LoadGlobalFrom(path)
+			if len(tt.wantErrSubs) == 0 {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected error for invalid direction, got nil")
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("expected error to mention file path, got: %v", err)
+			}
+			for _, sub := range tt.wantErrSubs {
+				if !strings.Contains(err.Error(), sub) {
+					t.Errorf("expected error to contain %q, got: %v", sub, err)
+				}
+			}
+		})
 	}
 }
 
-func TestResolve_Precedence(t *testing.T) {
-	global := GlobalConfig{
-		WorktreeDirectory: "/worktrees",
-		BranchPrefix:      "wktr/",
-		DefaultLayout: &Layout{
-			Direction: "vertical",
-			Panes:    []Pane{{Command: "default-cmd"}},
-		},
-		Repos: map[string]RepoConfig{
-			"org/repo": {
-				Layout: Layout{
-					Direction: "vertical",
-					Panes:    []Pane{{Command: "global-repo-cmd"}},
-				},
+func layoutYAML(command string) string {
+	return "layout:\n  direction: vertical\n  panes:\n    - command: \"" + command + "\"\n"
+}
+
+func TestResolve_PerKeyFallthrough(t *testing.T) {
+	globalLayout := &Layout{
+		Direction: "vertical",
+		Panes:     []Pane{{Command: "global-cmd"}},
+	}
+	reposEntryLayout := &Layout{
+		Direction: "vertical",
+		Panes:     []Pane{{Command: "repos-entry-cmd"}},
+	}
+
+	tests := []struct {
+		name      string
+		files     map[string]string
+		global    GlobalConfig
+		orgRepo   string
+		wantCmd   string
+		wantPanes int
+	}{
+		{
+			name: "local config wins over all levels",
+			files: map[string]string{
+				".wktr.local.yaml": layoutYAML("local-cmd"),
+				".wktr.yaml":       layoutYAML("repo-cmd"),
 			},
+			global: GlobalConfig{
+				Layout: globalLayout,
+				Repos:  map[string]RepoConfig{"org/repo": {Layout: reposEntryLayout}},
+			},
+			orgRepo:   "org/repo",
+			wantCmd:   "local-cmd",
+			wantPanes: 1,
+		},
+		{
+			name: "local config omitting layout falls through to repo config",
+			files: map[string]string{
+				".wktr.local.yaml": "# personal overrides, no layout key\n",
+				".wktr.yaml":       layoutYAML("repo-cmd"),
+			},
+			global: GlobalConfig{
+				Layout: globalLayout,
+				Repos:  map[string]RepoConfig{"org/repo": {Layout: reposEntryLayout}},
+			},
+			orgRepo:   "org/repo",
+			wantCmd:   "repo-cmd",
+			wantPanes: 1,
+		},
+		{
+			name: "repo config omitting layout falls through to global repos entry",
+			files: map[string]string{
+				".wktr.yaml": "# repo config, no layout key\n",
+			},
+			global: GlobalConfig{
+				Layout: globalLayout,
+				Repos:  map[string]RepoConfig{"org/repo": {Layout: reposEntryLayout}},
+			},
+			orgRepo:   "org/repo",
+			wantCmd:   "repos-entry-cmd",
+			wantPanes: 1,
+		},
+		{
+			name: "no repo files falls through to global repos entry",
+			global: GlobalConfig{
+				Layout: globalLayout,
+				Repos:  map[string]RepoConfig{"org/repo": {Layout: reposEntryLayout}},
+			},
+			orgRepo:   "org/repo",
+			wantCmd:   "repos-entry-cmd",
+			wantPanes: 1,
+		},
+		{
+			name: "repos entry omitting layout falls through to global layout",
+			global: GlobalConfig{
+				Layout: globalLayout,
+				Repos:  map[string]RepoConfig{"org/repo": {}},
+			},
+			orgRepo:   "org/repo",
+			wantCmd:   "global-cmd",
+			wantPanes: 1,
+		},
+		{
+			name: "no repos entry falls through to global layout",
+			global: GlobalConfig{
+				Layout: globalLayout,
+				Repos:  map[string]RepoConfig{"org/repo": {Layout: reposEntryLayout}},
+			},
+			orgRepo:   "other/repo",
+			wantCmd:   "global-cmd",
+			wantPanes: 1,
+		},
+		{
+			name:      "nothing set falls through to built-in default",
+			global:    GlobalConfig{},
+			orgRepo:   "org/repo",
+			wantCmd:   "",
+			wantPanes: 1,
 		},
 	}
 
-	t.Run("uses repo config file when present", func(t *testing.T) {
-		dir := t.TempDir()
-		rc := RepoConfig{
-			Layout: Layout{
-				Direction: "vertical",
-				Panes:    []Pane{{Command: "file-cmd"}},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+					t.Fatalf("failed to write %s: %v", name, err)
+				}
+			}
+
+			resolved, err := Resolve(tt.global, dir, tt.orgRepo)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(resolved.Layout.Panes) != tt.wantPanes {
+				t.Fatalf("expected %d panes, got %d", tt.wantPanes, len(resolved.Layout.Panes))
+			}
+			if resolved.Layout.Panes[0].Command != tt.wantCmd {
+				t.Errorf("expected command %q, got %q", tt.wantCmd, resolved.Layout.Panes[0].Command)
+			}
+		})
+	}
+}
+
+func TestResolve_LayoutIsAtomic(t *testing.T) {
+	dir := t.TempDir()
+
+	localYAML := "layout:\n  direction: horizontal\n  panes:\n    - command: \"local-cmd\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".wktr.local.yaml"), []byte(localYAML), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	repoYAML := "layout:\n  direction: vertical\n  panes:\n    - command: \"repo-cmd-1\"\n    - command: \"repo-cmd-2\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), []byte(repoYAML), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	resolved, err := Resolve(GlobalConfig{}, dir, "org/repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resolved.Layout.Direction != "horizontal" {
+		t.Errorf("expected direction %q, got %q", "horizontal", resolved.Layout.Direction)
+	}
+	if len(resolved.Layout.Panes) != 1 {
+		t.Fatalf("expected winning layout to apply wholesale with 1 pane, got %d", len(resolved.Layout.Panes))
+	}
+	if resolved.Layout.Panes[0].Command != "local-cmd" {
+		t.Errorf("expected command %q, got %q", "local-cmd", resolved.Layout.Panes[0].Command)
+	}
+}
+
+func TestResolve_GlobalOnlyKeys(t *testing.T) {
+	dir := t.TempDir()
+	global := GlobalConfig{
+		WorktreeDirectory: "/worktrees",
+		BranchPrefix:      "wktr/",
+	}
+
+	resolved, err := Resolve(global, dir, "org/repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resolved.WorktreeDirectory != "/worktrees" {
+		t.Errorf("expected worktree_directory %q, got %q", "/worktrees", resolved.WorktreeDirectory)
+	}
+	if resolved.BranchPrefix != "wktr/" {
+		t.Errorf("expected branch_prefix %q, got %q", "wktr/", resolved.BranchPrefix)
+	}
+}
+
+func TestResolve_InvalidRepoFiles(t *testing.T) {
+	tests := []struct {
+		name        string
+		files       map[string]string
+		wantErrSubs []string
+	}{
+		{
+			name: "invalid YAML in repo config",
+			files: map[string]string{
+				".wktr.yaml": ":\tinvalid: {{yaml",
 			},
-		}
-		data, _ := yaml.Marshal(rc)
-		if err := os.WriteFile(filepath.Join(dir, ".wktr.yaml"), data, 0o644); err != nil {
-			t.Fatalf("failed to write file: %v", err)
-		}
+			wantErrSubs: []string{".wktr.yaml"},
+		},
+		{
+			name: "invalid YAML in local config",
+			files: map[string]string{
+				".wktr.local.yaml": ":\tinvalid: {{yaml",
+				".wktr.yaml":       layoutYAML("repo-cmd"),
+			},
+			wantErrSubs: []string{".wktr.local.yaml"},
+		},
+		{
+			name: "invalid direction in repo config",
+			files: map[string]string{
+				".wktr.yaml": "layout:\n  direction: diagonal\n  panes:\n    - command: \"echo\"\n",
+			},
+			wantErrSubs: []string{".wktr.yaml", `"diagonal"`, "vertical", "horizontal"},
+		},
+		{
+			name: "invalid direction in local config",
+			files: map[string]string{
+				".wktr.local.yaml": "layout:\n  direction: sideways\n  panes:\n    - command: \"echo\"\n",
+				".wktr.yaml":       layoutYAML("repo-cmd"),
+			},
+			wantErrSubs: []string{".wktr.local.yaml", `"sideways"`, "vertical", "horizontal"},
+		},
+	}
 
-		resolved := Resolve(global, dir, "org/repo")
-		if resolved.Layout.Panes[0].Command != "file-cmd" {
-			t.Errorf("expected file-cmd, got %q", resolved.Layout.Panes[0].Command)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+					t.Fatalf("failed to write %s: %v", name, err)
+				}
+			}
 
-	t.Run("falls back to global repos entry", func(t *testing.T) {
-		dir := t.TempDir()
-		resolved := Resolve(global, dir, "org/repo")
-		if resolved.Layout.Panes[0].Command != "global-repo-cmd" {
-			t.Errorf("expected global-repo-cmd, got %q", resolved.Layout.Panes[0].Command)
-		}
-	})
-
-	t.Run("falls back to default layout", func(t *testing.T) {
-		dir := t.TempDir()
-		resolved := Resolve(global, dir, "other/repo")
-		if resolved.Layout.Panes[0].Command != "default-cmd" {
-			t.Errorf("expected default-cmd, got %q", resolved.Layout.Panes[0].Command)
-		}
-	})
-
-	t.Run("falls back to hardcoded default", func(t *testing.T) {
-		noDefault := GlobalConfig{
-			WorktreeDirectory: "/worktrees",
-			BranchPrefix:      "wktr/",
-		}
-		dir := t.TempDir()
-		resolved := Resolve(noDefault, dir, "any/repo")
-		if resolved.Layout.Direction != "vertical" {
-			t.Errorf("expected vertical, got %q", resolved.Layout.Direction)
-		}
-		if len(resolved.Layout.Panes) != 1 {
-			t.Errorf("expected 1 pane, got %d", len(resolved.Layout.Panes))
-		}
-	})
+			_, err := Resolve(GlobalConfig{}, dir, "org/repo")
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			for _, sub := range tt.wantErrSubs {
+				if !strings.Contains(err.Error(), sub) {
+					t.Errorf("expected error to contain %q, got: %v", sub, err)
+				}
+			}
+		})
+	}
 }
 
 func TestExpandHome(t *testing.T) {
