@@ -244,6 +244,32 @@ func TestResumeErrorsWhenBothMultiplexersDetected(t *testing.T) {
 	}
 }
 
+func TestResumePassesResolvedMultiplexerToSelector(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	repoYAML := "multiplexer: herdr\n"
+	if err := os.WriteFile(filepath.Join(repo, ".wktr.yaml"), []byte(repoYAML), 0o644); err != nil {
+		t.Fatalf("failed to write .wktr.yaml: %v", err)
+	}
+
+	mux := newFakeMultiplexer()
+	if err := Create(selectorFor(mux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var gotValue string
+	selector := func(value string) (multiplexer.Multiplexer, error) {
+		gotValue = value
+		return mux, nil
+	}
+
+	if err := Resume(selector, ResumeOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if gotValue != "herdr" {
+		t.Errorf("expected resolved multiplexer %q passed to selector, got %q", "herdr", gotValue)
+	}
+}
+
 func TestCreateReturnsOpenWindowError(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
