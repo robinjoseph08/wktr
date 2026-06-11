@@ -42,7 +42,7 @@ The `.wktr.local.yaml` at a repo's root, holding personal machine-specific overr
 
 - A **Task** owns exactly one branch and one **Worktree**
 - A **Window** is hosted by exactly one **Multiplexer**
-- A **Task** may have **Windows** open in more than one **Multiplexer** at once; removing the Task closes all of them
+- A **Task** may have **Windows** open in more than one **Multiplexer** at once (at most one per Multiplexer); removing the Task closes all of them
 - A **Window** contains one or more **Panes**, arranged by a **Layout**
 - Settings resolve per key: **Local config** over **Repo config** over **Global config** (ADR-0003 records the full five-level chain)
 
