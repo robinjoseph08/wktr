@@ -81,6 +81,9 @@ func initOrchestrationRepo(t *testing.T) (string, string) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// Keep the developer's real git config (e.g. commit.gpgsign or anything
+	// under XDG_CONFIG_HOME) from leaking into the test repos.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 
 	repo := t.TempDir()
 	commands := [][]string{
