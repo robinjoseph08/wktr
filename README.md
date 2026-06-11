@@ -152,7 +152,7 @@ Note: the global `default_layout` key was renamed to `layout`. Configs that stil
 
 ### Layout options
 
-A layout has a `direction` and a list of `panes`. `direction` must be `vertical` or `horizontal`; any other value fails at load time.
+A layout has a `direction` and a list of `panes`. `direction` is optional; when set, it must be `vertical` or `horizontal`, and any other value fails at load time.
 
 ### Pane options
 

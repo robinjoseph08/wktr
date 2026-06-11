@@ -86,32 +86,52 @@ func TestLoadGlobalFromFile(t *testing.T) {
 }
 
 func TestLoadGlobalFromDefaultLayoutRename(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-
-	yamlData := `
+	tests := []struct {
+		name     string
+		yamlData string
+	}{
+		{
+			name: "default_layout with a value",
+			yamlData: `
 worktree_directory: /custom/path
 default_layout:
   direction: vertical
   panes:
     - command: "echo hello"
-`
-	if err := os.WriteFile(path, []byte(yamlData), 0o644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
+`,
+		},
+		{
+			name: "default_layout with a null value",
+			yamlData: `
+worktree_directory: /custom/path
+default_layout:
+`,
+		},
 	}
 
-	_, err := LoadGlobalFrom(path)
-	if err == nil {
-		t.Fatal("expected error for default_layout key, got nil")
-	}
-	if !strings.Contains(err.Error(), "default_layout") {
-		t.Errorf("expected error to mention default_layout, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), `renamed to "layout"`) {
-		t.Errorf("expected error to name the rename to layout, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), path) {
-		t.Errorf("expected error to mention file path, got: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+
+			if err := os.WriteFile(path, []byte(tt.yamlData), 0o644); err != nil {
+				t.Fatalf("failed to write config: %v", err)
+			}
+
+			_, err := LoadGlobalFrom(path)
+			if err == nil {
+				t.Fatal("expected error for default_layout key, got nil")
+			}
+			if !strings.Contains(err.Error(), "default_layout") {
+				t.Errorf("expected error to mention default_layout, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), `renamed to "layout"`) {
+				t.Errorf("expected error to name the rename to layout, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("expected error to mention file path, got: %v", err)
+			}
+		})
 	}
 }
 

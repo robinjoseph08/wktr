@@ -85,11 +85,13 @@ func LoadGlobalFrom(path string) (GlobalConfig, error) {
 		return cfg, err
 	}
 
-	var legacy struct {
-		DefaultLayout *yaml.Node `yaml:"default_layout"`
-	}
-	if err := yaml.Unmarshal(data, &legacy); err == nil && legacy.DefaultLayout != nil {
-		return cfg, fmt.Errorf("invalid %s: %q has been renamed to %q", path, "default_layout", "layout")
+	// Probe for the renamed key by presence, not value, so even a bare
+	// "default_layout:" with a null value triggers the error.
+	var keys map[string]yaml.Node
+	if err := yaml.Unmarshal(data, &keys); err == nil {
+		if _, ok := keys["default_layout"]; ok {
+			return cfg, fmt.Errorf("invalid %s: %q has been renamed to %q", path, "default_layout", "layout")
+		}
 	}
 
 	var fileCfg GlobalConfig
