@@ -109,6 +109,65 @@ func TestHerdrOpenWindowSurfacesCreateError(t *testing.T) {
 	}
 }
 
+func TestHerdrOpenWindowSurfacesFocusError(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_not_found.json"),
+		},
+		errs: map[string]error{
+			"tab focus": errors.New("exit status 1"),
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", config.DefaultLayout())
+	if err == nil || !strings.Contains(err.Error(), "tab bogus:99 not found") {
+		t.Fatalf("expected herdr focus error to be surfaced, got %v", err)
+	}
+}
+
+// TestHerdrCommandErrorPaths covers the envelope-unwrapping fallbacks for
+// output that is not a herdr JSON envelope.
+func TestHerdrCommandErrorPaths(t *testing.T) {
+	t.Run("run error with non-JSON output includes both", func(t *testing.T) {
+		cli := &fakeHerdrCLI{
+			outputs: map[string][]byte{"tab list": []byte("herdr: something broke")},
+			errs:    map[string]error{"tab list": errors.New("exit status 2")},
+		}
+		h := newHerdrWithCLI(cli)
+
+		_, err := h.findTab("my-task")
+		if err == nil || !strings.Contains(err.Error(), "exit status 2") || !strings.Contains(err.Error(), "something broke") {
+			t.Fatalf("expected run error and output detail, got %v", err)
+		}
+	})
+
+	t.Run("run error with empty output has no dangling separator", func(t *testing.T) {
+		runErr := errors.New("executable file not found")
+		cli := &fakeHerdrCLI{errs: map[string]error{"tab list": runErr}}
+		h := newHerdrWithCLI(cli)
+
+		_, err := h.findTab("my-task")
+		if !errors.Is(err, runErr) {
+			t.Fatalf("expected run error to propagate, got %v", err)
+		}
+		if strings.HasSuffix(err.Error(), ":") || strings.HasSuffix(err.Error(), ": ") {
+			t.Errorf("expected no dangling detail separator, got %q", err.Error())
+		}
+	})
+
+	t.Run("non-envelope output without a run error is unexpected", func(t *testing.T) {
+		cli := &fakeHerdrCLI{outputs: map[string][]byte{"tab list": []byte("not json")}}
+		h := newHerdrWithCLI(cli)
+
+		_, err := h.findTab("my-task")
+		if err == nil || !strings.Contains(err.Error(), "unexpected output") {
+			t.Fatalf("expected unexpected-output error, got %v", err)
+		}
+	})
+}
+
 func TestHerdrWindowExists(t *testing.T) {
 	cli := &fakeHerdrCLI{outputs: map[string][]byte{
 		"tab list": fixture(t, "herdr_tab_list.json"),
@@ -240,6 +299,13 @@ func TestHerdrTabCreationParsesOpaqueIDs(t *testing.T) {
 	}
 	if created.RootPane.PaneID != "w653faa4eef9f71-3" {
 		t.Errorf("root pane ID: got %q, want %q", created.RootPane.PaneID, "w653faa4eef9f71-3")
+	}
+}
+
+func TestHerdrTabCreationErrorsWithoutTabID(t *testing.T) {
+	_, err := parseTabCreated([]byte(`{"tab":{"label":"my-task"}}`))
+	if err == nil || !strings.Contains(err.Error(), "tab ID") {
+		t.Fatalf("expected missing tab ID error, got %v", err)
 	}
 }
 

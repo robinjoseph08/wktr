@@ -19,7 +19,7 @@ func Select(value string, insideTmux, insideHerdr bool) (Multiplexer, error) {
 		return NewTmux(), nil
 	case "herdr":
 		if !insideHerdr {
-			return nil, fmt.Errorf("multiplexer %q is configured but no herdr session was detected (HERDR_ENV is not set)", "herdr")
+			return nil, fmt.Errorf("multiplexer %q is configured but no herdr session was detected (HERDR_ENV=1 was not found)", "herdr")
 		}
 		return NewHerdr(), nil
 	case "auto":
