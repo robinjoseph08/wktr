@@ -273,6 +273,13 @@ func TestHerdrKillWindowIsBestEffort(t *testing.T) {
 		},
 	}
 	newHerdrWithCLI(cli).KillWindow("my-task")
+
+	// The close was attempted and its failure swallowed, not skipped.
+	last := cli.calls[len(cli.calls)-1]
+	want := []string{"tab", "close", "w653faa4eef9f71:2"}
+	if !reflect.DeepEqual(last, want) {
+		t.Errorf("expected a close attempt, got %v", cli.calls)
+	}
 }
 
 // resultOf unwraps the JSON envelope around a recorded herdr response,

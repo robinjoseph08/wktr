@@ -14,7 +14,7 @@ func Select(value string, insideTmux, insideHerdr bool) (Multiplexer, error) {
 	switch value {
 	case "tmux":
 		if !insideTmux {
-			return nil, fmt.Errorf("multiplexer %q is configured but no tmux session was detected (TMUX is not set)", "tmux")
+			return nil, fmt.Errorf("multiplexer %q is configured but no tmux session was detected (TMUX is empty or not set)", "tmux")
 		}
 		return NewTmux(), nil
 	case "herdr":

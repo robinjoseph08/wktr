@@ -145,7 +145,7 @@ The `multiplexer` key controls which terminal multiplexer `create` and `resume` 
 | `tmux` | Always use tmux; only checks that you are inside a tmux session |
 | `herdr` | Always use herdr; only checks that you are inside a herdr session |
 
-Auto-detection looks at the environment: `HERDR_ENV=1` means you are inside herdr, and a set `TMUX` variable means you are inside tmux.
+Auto-detection looks at the environment: `HERDR_ENV=1` means you are inside herdr, and a non-empty `TMUX` variable means you are inside tmux.
 
 - Inside exactly one of them, `auto` picks that one.
 - Inside neither, `create` and `resume` fail with an error naming both supported multiplexers.
