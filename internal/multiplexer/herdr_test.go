@@ -176,6 +176,26 @@ func TestHerdrCommandErrorPaths(t *testing.T) {
 			t.Fatalf("expected unexpected-output error, got %v", err)
 		}
 	})
+
+	t.Run("envelope with a null result is unexpected", func(t *testing.T) {
+		cli := &fakeHerdrCLI{outputs: map[string][]byte{"tab list": []byte(`{"id":"cli:tab:list","result":null}`)}}
+		h := newHerdrWithCLI(cli)
+
+		_, err := h.findTab("my-task")
+		if err == nil || !strings.Contains(err.Error(), "unexpected output") {
+			t.Fatalf("expected unexpected-output error, got %v", err)
+		}
+	})
+
+	t.Run("envelope error without a message is unexpected, not a dangling separator", func(t *testing.T) {
+		cli := &fakeHerdrCLI{outputs: map[string][]byte{"tab list": []byte(`{"id":"cli:tab:list","error":{}}`)}}
+		h := newHerdrWithCLI(cli)
+
+		_, err := h.findTab("my-task")
+		if err == nil || !strings.Contains(err.Error(), "unexpected output") {
+			t.Fatalf("expected unexpected-output error, got %v", err)
+		}
+	})
 }
 
 func TestHerdrWindowExists(t *testing.T) {

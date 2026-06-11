@@ -144,12 +144,13 @@ func (h *Herdr) command(noun, verb string, extra ...string) (json.RawMessage, er
 
 	var envelope herdrEnvelope
 	if err := json.Unmarshal(out, &envelope); err == nil {
-		if envelope.Error != nil {
+		if envelope.Error != nil && envelope.Error.Message != "" {
 			return nil, fmt.Errorf("herdr %s: %s", subcommand, envelope.Error.Message)
 		}
-		// An envelope with neither result nor error is not a success;
-		// it falls through to the unexpected-output diagnostic.
-		if runErr == nil && len(envelope.Result) > 0 {
+		// Success needs a real result and no error object; anything else
+		// (a null or missing result, an error without a message) falls
+		// through to the unexpected-output diagnostic.
+		if runErr == nil && envelope.Error == nil && len(envelope.Result) > 0 && string(envelope.Result) != "null" {
 			return envelope.Result, nil
 		}
 	}
