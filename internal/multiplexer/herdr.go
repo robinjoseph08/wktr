@@ -133,23 +133,26 @@ type herdrEnvelope struct {
 }
 
 // command runs a herdr CLI command and unwraps its JSON envelope, returning
-// the raw result payload or the error herdr reported.
-func (h *Herdr) command(args ...string) (json.RawMessage, error) {
+// the raw result payload or the error herdr reported. Errors identify the
+// command by its noun and verb (e.g. "tab create") without the flag noise.
+func (h *Herdr) command(noun, verb string, extra ...string) (json.RawMessage, error) {
+	subcommand := noun + " " + verb
+	args := append([]string{noun, verb}, extra...)
 	out, runErr := h.run(args...)
 
 	var envelope herdrEnvelope
 	if err := json.Unmarshal(out, &envelope); err == nil {
 		if envelope.Error != nil {
-			return nil, fmt.Errorf("herdr %s: %s", strings.Join(args[:2], " "), envelope.Error.Message)
+			return nil, fmt.Errorf("herdr %s: %s", subcommand, envelope.Error.Message)
 		}
 		if runErr == nil {
 			return envelope.Result, nil
 		}
 	}
 	if runErr != nil {
-		return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args[:2], " "), runErr, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("herdr %s: %w: %s", subcommand, runErr, strings.TrimSpace(string(out)))
 	}
-	return nil, fmt.Errorf("herdr %s: unexpected output: %s", strings.Join(args[:2], " "), strings.TrimSpace(string(out)))
+	return nil, fmt.Errorf("herdr %s: unexpected output: %s", subcommand, strings.TrimSpace(string(out)))
 }
 
 func parseTabCreated(result []byte) (herdrTabCreated, error) {

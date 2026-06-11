@@ -85,6 +85,9 @@ func TestHerdrOpenWindowCreatesUnfocusedTabThenFocusesIt(t *testing.T) {
 func TestHerdrOpenWindowSurfacesCreateError(t *testing.T) {
 	cli := &fakeHerdrCLI{
 		outputs: map[string][]byte{
+			// The fixture was recorded from a different failing command;
+			// it stands in for any error envelope since only the
+			// envelope shape matters here.
 			"tab create": fixture(t, "herdr_tab_not_found.json"),
 		},
 		errs: map[string]error{
@@ -198,7 +201,9 @@ func TestHerdrKillWindowIsBestEffort(t *testing.T) {
 		}
 	}
 
-	// A failing close is swallowed.
+	// A failing close is swallowed. The not-found fixture was recorded from
+	// a different failing command; it stands in for any error envelope
+	// since only the envelope shape matters here.
 	cli = &fakeHerdrCLI{
 		outputs: map[string][]byte{
 			"tab list":  fixture(t, "herdr_tab_list.json"),

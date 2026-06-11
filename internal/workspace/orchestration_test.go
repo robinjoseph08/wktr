@@ -43,14 +43,6 @@ func (f *fakeMultiplexer) Detect() bool {
 	return true
 }
 
-// selectorFor is a MultiplexerSelector that always picks the given backend,
-// standing in for selection in tests that exercise orchestration alone.
-func selectorFor(mux multiplexer.Multiplexer) MultiplexerSelector {
-	return func(value string) (multiplexer.Multiplexer, error) {
-		return mux, nil
-	}
-}
-
 func (f *fakeMultiplexer) OpenWindow(name, dir string, layout config.Layout) error {
 	f.opened = append(f.opened, openedWindow{name: name, dir: dir, layout: layout})
 	if f.openErr != nil {
@@ -79,6 +71,14 @@ func (f *fakeMultiplexer) WindowExists(name string) bool {
 func (f *fakeMultiplexer) KillWindow(name string) {
 	f.killed = append(f.killed, name)
 	delete(f.windows, name)
+}
+
+// selectorFor is a MultiplexerSelector that always picks the given backend,
+// standing in for selection in tests that exercise orchestration alone.
+func selectorFor(mux multiplexer.Multiplexer) MultiplexerSelector {
+	return func(value string) (multiplexer.Multiplexer, error) {
+		return mux, nil
+	}
 }
 
 // initOrchestrationRepo creates a git repo with an origin remote for
@@ -134,8 +134,11 @@ func TestCreateErrorsWhenBothMultiplexersDetected(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1234,0")
 	t.Setenv("HERDR_ENV", "1")
 
+	// "pin" is unique to the ambiguity message; the neither-detected error
+	// also mentions "multiplexer", so a looser match could pass on the
+	// wrong failure mode.
 	err := Create(multiplexer.SelectFromEnv, CreateOpts{Name: "my-task", Dir: repo})
-	if err == nil || !strings.Contains(err.Error(), "multiplexer") {
+	if err == nil || !strings.Contains(err.Error(), "pin") {
 		t.Fatalf("expected error telling the user to pin multiplexer, got %v", err)
 	}
 }
@@ -227,8 +230,11 @@ func TestResumeErrorsWhenBothMultiplexersDetected(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1234,0")
 	t.Setenv("HERDR_ENV", "1")
 
+	// "pin" is unique to the ambiguity message; the neither-detected error
+	// also mentions "multiplexer", so a looser match could pass on the
+	// wrong failure mode.
 	err := Resume(multiplexer.SelectFromEnv, ResumeOpts{Name: "my-task", Dir: repo})
-	if err == nil || !strings.Contains(err.Error(), "multiplexer") {
+	if err == nil || !strings.Contains(err.Error(), "pin") {
 		t.Fatalf("expected error telling the user to pin multiplexer, got %v", err)
 	}
 }
