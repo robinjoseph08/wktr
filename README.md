@@ -1,6 +1,6 @@
 # wktr
 
-A CLI tool to manage git worktrees with automatic tmux window and pane configuration.
+A CLI tool to manage git worktrees with automatic window and pane configuration in your terminal multiplexer (tmux or herdr).
 
 ## Install
 
@@ -19,7 +19,7 @@ go install github.com/robinjoseph08/wktr@latest
 ## Usage
 
 ```bash
-# Create a new worktree with a tmux window
+# Create a new worktree with a window in your multiplexer
 wktr create my-feature
 
 # Create with auto-generated name
@@ -56,6 +56,9 @@ worktree_directory: ~/.worktrees
 
 # Branch name prefix (default: wktr/)
 branch_prefix: wktr/
+
+# Which multiplexer to open windows in: tmux, herdr, or auto (default: auto)
+multiplexer: auto
 
 # Layout for repos that don't set their own
 layout:
@@ -132,15 +135,37 @@ layout:
       run: true
 ```
 
+### Multiplexer selection
+
+The `multiplexer` key controls which terminal multiplexer `create` and `resume` open windows in. Valid values:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` (default) | Detect the multiplexer wktr is running inside and use it |
+| `tmux` | Always use tmux; only checks that you are inside a tmux session |
+| `herdr` | Always use herdr; only checks that you are inside a herdr session |
+
+Auto-detection looks at the environment: `HERDR_ENV=1` means you are inside herdr, and a set `TMUX` variable means you are inside tmux.
+
+- Inside exactly one of them, `auto` picks that one.
+- Inside neither, `create` and `resume` fail with an error naming both supported multiplexers.
+- Inside both (nested multiplexers, where one inherits the other's environment variables), wktr refuses to guess and asks you to pin `multiplexer: tmux` or `multiplexer: herdr` in your config.
+
+The key resolves at every config level with the same per-key fallthrough as `layout`, so a repo can commit a choice in `.wktr.yaml`, you can override it personally in `.wktr.local.yaml`, and a permanent pin can live in the global config. Invalid values fail at config load time with an error naming the valid options.
+
+Only `create` and `resume` resolve the setting; `remove` and `list` never need it.
+
+In herdr, a task's window is a tab labeled with the task name, created in whatever herdr workspace you are currently in. wktr never creates or manages herdr workspaces. Herdr windows currently open with a single default pane; pane layouts are not applied in herdr yet.
+
 ### Config precedence
 
-Every level accepts the same per-repo keys (currently just `layout`). Each key resolves independently down the levels, and the first level that sets it wins:
+Every level accepts the same per-repo keys (`layout` and `multiplexer`). Each key resolves independently down the levels, and the first level that sets it wins:
 
 1. `.wktr.local.yaml` (highest priority)
 2. `.wktr.yaml`
 3. Global `repos[org/repo]` entry
-4. Global top-level `layout`
-5. Built-in default (single empty shell pane)
+4. Global top level
+5. Built-in default (a single empty shell pane for `layout`, `auto` for `multiplexer`)
 
 A file that omits a key is transparent for that key. For example, a `.wktr.local.yaml` without a `layout` key doesn't hide the layout in `.wktr.yaml`; resolution just continues to the next level.
 
@@ -219,4 +244,4 @@ The workflow builds the binaries, publishes a GitHub release with archives, and 
 ## Requirements
 
 - git
-- tmux (must be run inside a tmux session)
+- tmux or [herdr](https://herdr.dev) (`create` and `resume` must run inside one of them)

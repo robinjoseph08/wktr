@@ -12,6 +12,7 @@ import (
 
 	"github.com/robinjoseph08/wktr/internal/config"
 	"github.com/robinjoseph08/wktr/internal/git"
+	"github.com/robinjoseph08/wktr/internal/multiplexer"
 )
 
 type openedWindow struct {
@@ -26,7 +27,6 @@ type openedWindow struct {
 // the call is still recorded, but a failed OpenWindow does not register the
 // Window as existing.
 type fakeMultiplexer struct {
-	inside   bool
 	windows  map[string]bool
 	opened   []openedWindow
 	focused  []string
@@ -36,11 +36,19 @@ type fakeMultiplexer struct {
 }
 
 func newFakeMultiplexer() *fakeMultiplexer {
-	return &fakeMultiplexer{inside: true, windows: map[string]bool{}}
+	return &fakeMultiplexer{windows: map[string]bool{}}
 }
 
 func (f *fakeMultiplexer) Detect() bool {
-	return f.inside
+	return true
+}
+
+// selectorFor is a MultiplexerSelector that always picks the given backend,
+// standing in for selection in tests that exercise orchestration alone.
+func selectorFor(mux multiplexer.Multiplexer) MultiplexerSelector {
+	return func(value string) (multiplexer.Multiplexer, error) {
+		return mux, nil
+	}
 }
 
 func (f *fakeMultiplexer) OpenWindow(name, dir string, layout config.Layout) error {
@@ -105,16 +113,70 @@ func initOrchestrationRepo(t *testing.T) (string, string) {
 	return repo, filepath.Join(home, ".worktrees")
 }
 
-func TestCreateOutsideMultiplexer(t *testing.T) {
-	mux := newFakeMultiplexer()
-	mux.inside = false
+func TestCreateOutsideBothMultiplexers(t *testing.T) {
+	repo, worktreeBase := initOrchestrationRepo(t)
+	t.Setenv("TMUX", "")
+	t.Setenv("HERDR_ENV", "")
 
-	err := Create(mux, CreateOpts{Name: "my-task"})
-	if err == nil || !strings.Contains(err.Error(), "must be run inside") {
-		t.Fatalf("expected inside-session error, got %v", err)
+	err := Create(multiplexer.SelectFromEnv, CreateOpts{Name: "my-task", Dir: repo})
+	if err == nil || !strings.Contains(err.Error(), "tmux") || !strings.Contains(err.Error(), "herdr") {
+		t.Fatalf("expected error naming both multiplexers, got %v", err)
 	}
-	if len(mux.opened) != 0 {
-		t.Errorf("expected no windows opened, got %v", mux.opened)
+	// Selection fails before any worktree is created.
+	wantDir := filepath.Join(worktreeBase, "testorg", "testrepo", "my-task")
+	if _, statErr := os.Stat(wantDir); !os.IsNotExist(statErr) {
+		t.Errorf("expected no worktree dir, stat err: %v", statErr)
+	}
+}
+
+func TestCreateErrorsWhenBothMultiplexersDetected(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	t.Setenv("TMUX", "/tmp/tmux-501/default,1234,0")
+	t.Setenv("HERDR_ENV", "1")
+
+	err := Create(multiplexer.SelectFromEnv, CreateOpts{Name: "my-task", Dir: repo})
+	if err == nil || !strings.Contains(err.Error(), "multiplexer") {
+		t.Fatalf("expected error telling the user to pin multiplexer, got %v", err)
+	}
+}
+
+func TestCreatePassesResolvedMultiplexerToSelector(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	repoYAML := "multiplexer: herdr\n"
+	if err := os.WriteFile(filepath.Join(repo, ".wktr.yaml"), []byte(repoYAML), 0o644); err != nil {
+		t.Fatalf("failed to write .wktr.yaml: %v", err)
+	}
+
+	mux := newFakeMultiplexer()
+	var gotValue string
+	selector := func(value string) (multiplexer.Multiplexer, error) {
+		gotValue = value
+		return mux, nil
+	}
+
+	if err := Create(selector, CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if gotValue != "herdr" {
+		t.Errorf("expected resolved multiplexer %q passed to selector, got %q", "herdr", gotValue)
+	}
+}
+
+func TestCreateDefaultsSelectorValueToAuto(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+
+	mux := newFakeMultiplexer()
+	var gotValue string
+	selector := func(value string) (multiplexer.Multiplexer, error) {
+		gotValue = value
+		return mux, nil
+	}
+
+	if err := Create(selector, CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if gotValue != "auto" {
+		t.Errorf("expected default multiplexer %q passed to selector, got %q", "auto", gotValue)
 	}
 }
 
@@ -122,7 +184,7 @@ func TestCreateOpensWindowWithLayout(t *testing.T) {
 	repo, worktreeBase := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
 
-	if err := Create(mux, CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -149,16 +211,25 @@ func TestCreateOpensWindowWithLayout(t *testing.T) {
 	}
 }
 
-func TestResumeOutsideMultiplexer(t *testing.T) {
-	mux := newFakeMultiplexer()
-	mux.inside = false
+func TestResumeOutsideBothMultiplexers(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	t.Setenv("TMUX", "")
+	t.Setenv("HERDR_ENV", "")
 
-	err := Resume(mux, ResumeOpts{Name: "my-task"})
-	if err == nil || !strings.Contains(err.Error(), "must be run inside") {
-		t.Fatalf("expected inside-session error, got %v", err)
+	err := Resume(multiplexer.SelectFromEnv, ResumeOpts{Name: "my-task", Dir: repo})
+	if err == nil || !strings.Contains(err.Error(), "tmux") || !strings.Contains(err.Error(), "herdr") {
+		t.Fatalf("expected error naming both multiplexers, got %v", err)
 	}
-	if len(mux.opened) != 0 || len(mux.focused) != 0 {
-		t.Errorf("expected no windows opened or focused, got %v and %v", mux.opened, mux.focused)
+}
+
+func TestResumeErrorsWhenBothMultiplexersDetected(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	t.Setenv("TMUX", "/tmp/tmux-501/default,1234,0")
+	t.Setenv("HERDR_ENV", "1")
+
+	err := Resume(multiplexer.SelectFromEnv, ResumeOpts{Name: "my-task", Dir: repo})
+	if err == nil || !strings.Contains(err.Error(), "multiplexer") {
+		t.Fatalf("expected error telling the user to pin multiplexer, got %v", err)
 	}
 }
 
@@ -167,7 +238,7 @@ func TestCreateReturnsOpenWindowError(t *testing.T) {
 	mux := newFakeMultiplexer()
 	mux.openErr = errors.New("open failed")
 
-	err := Create(mux, CreateOpts{Name: "my-task", Dir: repo})
+	err := Create(selectorFor(mux), CreateOpts{Name: "my-task", Dir: repo})
 	if !errors.Is(err, mux.openErr) {
 		t.Fatalf("expected OpenWindow error to propagate, got %v", err)
 	}
@@ -177,11 +248,11 @@ func TestResumeFocusesExistingWindow(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
 
-	if err := Create(mux, CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := Resume(mux, ResumeOpts{Name: "my-task", Dir: repo}); err != nil {
+	if err := Resume(selectorFor(mux), ResumeOpts{Name: "my-task", Dir: repo}); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
 
@@ -197,12 +268,12 @@ func TestResumeReturnsFocusWindowError(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
 
-	if err := Create(mux, CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	mux.focusErr = errors.New("focus failed")
-	err := Resume(mux, ResumeOpts{Name: "my-task", Dir: repo})
+	err := Resume(selectorFor(mux), ResumeOpts{Name: "my-task", Dir: repo})
 	if !errors.Is(err, mux.focusErr) {
 		t.Fatalf("expected FocusWindow error to propagate, got %v", err)
 	}
@@ -212,14 +283,14 @@ func TestResumeOpensWindowWhenNoneExists(t *testing.T) {
 	repo, worktreeBase := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
 
-	if err := Create(mux, CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	// Simulate the Window being closed, e.g. the Multiplexer session ended.
 	delete(mux.windows, "my-task")
 
-	if err := Resume(mux, ResumeOpts{Name: "my-task", Dir: repo}); err != nil {
+	if err := Resume(selectorFor(mux), ResumeOpts{Name: "my-task", Dir: repo}); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
 
@@ -243,7 +314,7 @@ func TestRemoveKillsWindowAndDeletesWorktree(t *testing.T) {
 	repo, worktreeBase := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
 
-	if err := Create(mux, CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -267,10 +338,10 @@ func TestListReportsWindowsFromMultiplexer(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
 
-	if err := Create(mux, CreateOpts{Name: "task-open", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "task-open", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Create(mux, CreateOpts{Name: "task-closed", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "task-closed", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	delete(mux.windows, "task-closed")
@@ -294,10 +365,10 @@ func TestListAllReportsWindowsFromMultiplexer(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
 
-	if err := Create(mux, CreateOpts{Name: "task-open", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "task-open", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Create(mux, CreateOpts{Name: "task-closed", Dir: repo}); err != nil {
+	if err := Create(selectorFor(mux), CreateOpts{Name: "task-closed", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	delete(mux.windows, "task-closed")
