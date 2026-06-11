@@ -10,4 +10,4 @@ The five canonical triage roles use their default label names. See `docs/agents/
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: one `CONTEXT.md` at the repo root plus ADRs under `docs/adr/`. See `docs/agents/domain.md`.

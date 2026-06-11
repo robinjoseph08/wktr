@@ -1,6 +1,6 @@
 # Named multiplexer backends, not configurable command templates
 
-wktr originally shelled out to tmux directly. To support herdr, each Multiplexer is a named Go implementation behind a single interface (create Window, split Pane, run/prime commands, focus, kill, find), selected by the `multiplexer` config key. Users cannot supply their own command strings.
+wktr drives tmux by shelling out directly. To support herdr, each supported Multiplexer gets a named Go backend behind a single interface (create Window, split Pane, run/prime commands, focus, kill, find), selected by the `multiplexer` config key. Users cannot supply their own command strings.
 
 ## Considered Options
 
