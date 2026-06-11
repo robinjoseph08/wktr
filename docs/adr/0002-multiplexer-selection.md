@@ -1,6 +1,6 @@
 # Multiplexer selection: auto-detect, error on ambiguity, agnostic cleanup
 
-The `multiplexer` setting defaults to `auto`: inside herdr (`HERDR_ENV` set) use herdr, inside tmux (`TMUX` set) use tmux, neither is an error. When both are set, wktr errors and asks the user to pin `multiplexer` in config rather than silently picking one, because env vars inherit through nesting (tmux inside herdr and herdr inside tmux look identical), so any hardcoded precedence sends Windows to the wrong Multiplexer for someone.
+The `multiplexer` setting defaults to `auto`: inside herdr (`HERDR_ENV` set) use herdr, inside tmux (`TMUX` set) use tmux, and being inside neither is an error. When both are set, wktr errors and asks the user to pin `multiplexer` in config rather than silently picking one, because env vars inherit through nesting (tmux inside herdr and herdr inside tmux look identical), so any hardcoded precedence sends Windows to the wrong Multiplexer for someone.
 
 ## Consequences
 

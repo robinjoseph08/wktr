@@ -36,7 +36,7 @@ The user-level config file at `~/.config/wktr/config.yaml`, the outermost level 
 The committed `.wktr.yaml` at a repo's root, shared by everyone who clones it.
 
 **Local config**:
-The uncommitted `.wktr.local.yaml` at a repo's root, holding personal machine-specific overrides.
+The `.wktr.local.yaml` at a repo's root, holding personal machine-specific overrides and meant to stay uncommitted.
 
 ## Relationships
 
@@ -49,6 +49,7 @@ The uncommitted `.wktr.local.yaml` at a repo's root, holding personal machine-sp
 ## Example dialogue
 
 > **Dev:** "I created a **Task** in tmux on Monday. Today I'm inside herdr and run resume. What opens?"
+>
 > **Domain expert:** "A fresh **Window** in herdr with the **Layout** applied. The tmux Window keeps running; a Task can be open in both **Multiplexers**, and removing the Task cleans up both."
 
 ## Flagged ambiguities
