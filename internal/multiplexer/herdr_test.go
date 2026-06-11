@@ -166,6 +166,16 @@ func TestHerdrCommandErrorPaths(t *testing.T) {
 			t.Fatalf("expected unexpected-output error, got %v", err)
 		}
 	})
+
+	t.Run("envelope with neither result nor error is unexpected", func(t *testing.T) {
+		cli := &fakeHerdrCLI{outputs: map[string][]byte{"tab list": []byte(`{"id":"cli:tab:list"}`)}}
+		h := newHerdrWithCLI(cli)
+
+		_, err := h.findTab("my-task")
+		if err == nil || !strings.Contains(err.Error(), "unexpected output") {
+			t.Fatalf("expected unexpected-output error, got %v", err)
+		}
+	})
 }
 
 func TestHerdrWindowExists(t *testing.T) {

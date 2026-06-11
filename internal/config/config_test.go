@@ -314,6 +314,23 @@ func TestLoadGlobalFromMultiplexer(t *testing.T) {
 	}
 }
 
+func TestLoadGlobalFromMultiplexerInReposEntry(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yamlData := "repos:\n  org/repo:\n    multiplexer: herdr\n"
+	if err := os.WriteFile(path, []byte(yamlData), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := LoadGlobalFrom(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := loaded.Repos["org/repo"].Multiplexer; got != "herdr" {
+		t.Errorf("expected repos entry multiplexer %q, got %q", "herdr", got)
+	}
+}
+
 func TestResolve_MultiplexerFallthrough(t *testing.T) {
 	tests := []struct {
 		name    string

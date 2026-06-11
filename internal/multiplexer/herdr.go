@@ -147,7 +147,9 @@ func (h *Herdr) command(noun, verb string, extra ...string) (json.RawMessage, er
 		if envelope.Error != nil {
 			return nil, fmt.Errorf("herdr %s: %s", subcommand, envelope.Error.Message)
 		}
-		if runErr == nil {
+		// An envelope with neither result nor error is not a success;
+		// it falls through to the unexpected-output diagnostic.
+		if runErr == nil && len(envelope.Result) > 0 {
 			return envelope.Result, nil
 		}
 	}

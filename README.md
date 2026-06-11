@@ -153,9 +153,9 @@ Auto-detection looks at the environment: `HERDR_ENV=1` means you are inside herd
 
 The key resolves at every config level with the same per-key fallthrough as `layout`, so a repo can commit a choice in `.wktr.yaml`, you can override it personally in `.wktr.local.yaml`, and a permanent pin can live in the global config. Invalid values fail at config load time with an error naming the valid options.
 
-Only `create` and `resume` resolve the setting; `remove` and `list` never need it. Note that `remove` and `list` currently only see tmux windows, so `wktr remove` does not close a herdr window yet; multiplexer-agnostic cleanup is a planned follow-up.
+Only `create` and `resume` resolve the setting; `remove` and `list` never need it. Note that `remove` and `list` currently only see tmux windows, so `wktr remove` does not close a herdr tab yet; multiplexer-agnostic cleanup is a planned follow-up.
 
-In herdr, a task's window is a tab labeled with the task name, created in whatever herdr workspace you are currently in. wktr never creates or manages herdr workspaces. Herdr windows currently open with a single default pane; pane layouts are not applied in herdr yet.
+In herdr, a task's window is a tab labeled with the task name, created in whatever herdr workspace you are currently in. wktr never creates or manages herdr workspaces. Herdr tabs currently open with a single default pane; pane layouts are not applied in herdr yet.
 
 ### Config precedence
 
