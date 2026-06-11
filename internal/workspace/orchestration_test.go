@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,7 +54,14 @@ func (f *fakeMultiplexer) OpenWindow(name, dir string, layout config.Layout) err
 
 func (f *fakeMultiplexer) FocusWindow(name string) error {
 	f.focused = append(f.focused, name)
-	return f.focusErr
+	if f.focusErr != nil {
+		return f.focusErr
+	}
+	// Mirror the real backend, which errors when the Window does not exist.
+	if !f.windows[name] {
+		return fmt.Errorf("window %q not found", name)
+	}
+	return nil
 }
 
 func (f *fakeMultiplexer) WindowExists(name string) bool {
@@ -133,6 +141,19 @@ func TestCreateOpensWindowWithLayout(t *testing.T) {
 	}
 	if _, err := os.Stat(wantDir); err != nil {
 		t.Errorf("expected worktree dir to exist: %v", err)
+	}
+}
+
+func TestResumeOutsideMultiplexer(t *testing.T) {
+	mux := newFakeMultiplexer()
+	mux.inside = false
+
+	err := Resume(mux, ResumeOpts{Name: "my-task"})
+	if err == nil || !strings.Contains(err.Error(), "must be run inside") {
+		t.Fatalf("expected inside-session error, got %v", err)
+	}
+	if len(mux.opened) != 0 || len(mux.focused) != 0 {
+		t.Errorf("expected no windows opened or focused, got %v and %v", mux.opened, mux.focused)
 	}
 }
 
