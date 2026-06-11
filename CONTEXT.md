@@ -5,7 +5,7 @@ A CLI that turns git worktrees into disposable working environments: each unit o
 ## Language
 
 **Task**:
-A named unit of work, realized as a git branch plus a Worktree and opened in a Window.
+A named unit of work, realized as a git branch plus a Worktree, optionally open in a Window per Multiplexer.
 _Avoid_: feature, job, ticket
 
 **Worktree**:

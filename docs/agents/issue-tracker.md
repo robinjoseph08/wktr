@@ -17,6 +17,6 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 Create a GitHub issue.
 
-## When a skill says "fetch the relevant ticket"
+## When a skill needs to read an issue
 
 Run `gh issue view <number> --json title,body,labels,comments`.
