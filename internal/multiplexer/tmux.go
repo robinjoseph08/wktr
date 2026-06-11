@@ -17,6 +17,7 @@ type Tmux struct{}
 
 var _ Multiplexer = (*Tmux)(nil)
 
+// NewTmux returns the tmux backend.
 func NewTmux() *Tmux {
 	return &Tmux{}
 }

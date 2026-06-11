@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,12 +21,15 @@ type openedWindow struct {
 
 // fakeMultiplexer implements multiplexer.Multiplexer and records every call
 // so orchestration tests can assert on what the workspace layer asked for.
+// openErr and focusErr, when set, are returned from the corresponding calls.
 type fakeMultiplexer struct {
-	inside  bool
-	windows map[string]bool
-	opened  []openedWindow
-	focused []string
-	killed  []string
+	inside   bool
+	windows  map[string]bool
+	opened   []openedWindow
+	focused  []string
+	killed   []string
+	openErr  error
+	focusErr error
 }
 
 func newFakeMultiplexer() *fakeMultiplexer {
@@ -37,12 +41,18 @@ func (f *fakeMultiplexer) Detect() bool {
 }
 
 func (f *fakeMultiplexer) OpenWindow(name, dir string, layout config.Layout) error {
+	if f.openErr != nil {
+		return f.openErr
+	}
 	f.opened = append(f.opened, openedWindow{name: name, dir: dir, layout: layout})
 	f.windows[name] = true
 	return nil
 }
 
 func (f *fakeMultiplexer) FocusWindow(name string) error {
+	if f.focusErr != nil {
+		return f.focusErr
+	}
 	f.focused = append(f.focused, name)
 	return nil
 }
@@ -127,6 +137,17 @@ func TestCreateOpensWindowWithLayout(t *testing.T) {
 	}
 }
 
+func TestCreateReturnsOpenWindowError(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	mux := newFakeMultiplexer()
+	mux.openErr = errors.New("open failed")
+
+	err := Create(mux, CreateOpts{Name: "my-task", Dir: repo})
+	if !errors.Is(err, mux.openErr) {
+		t.Fatalf("expected OpenWindow error to propagate, got %v", err)
+	}
+}
+
 func TestResumeFocusesExistingWindow(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
@@ -144,6 +165,21 @@ func TestResumeFocusesExistingWindow(t *testing.T) {
 	}
 	if !reflect.DeepEqual(mux.focused, []string{"my-task"}) {
 		t.Errorf("expected window %q focused, got %v", "my-task", mux.focused)
+	}
+}
+
+func TestResumeReturnsFocusWindowError(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	mux := newFakeMultiplexer()
+
+	if err := Create(mux, CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	mux.focusErr = errors.New("focus failed")
+	err := Resume(mux, ResumeOpts{Name: "my-task", Dir: repo})
+	if !errors.Is(err, mux.focusErr) {
+		t.Fatalf("expected FocusWindow error to propagate, got %v", err)
 	}
 }
 
@@ -221,6 +257,36 @@ func TestListReportsWindowsFromMultiplexer(t *testing.T) {
 
 	hasWindow := map[string]bool{}
 	for _, info := range infos {
+		hasWindow[info.Name] = info.HasWindow
+	}
+	want := map[string]bool{"task-open": true, "task-closed": false}
+	if !reflect.DeepEqual(hasWindow, want) {
+		t.Errorf("got %v, want %v", hasWindow, want)
+	}
+}
+
+func TestListAllReportsWindowsFromMultiplexer(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	mux := newFakeMultiplexer()
+
+	if err := Create(mux, CreateOpts{Name: "task-open", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Create(mux, CreateOpts{Name: "task-closed", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	delete(mux.windows, "task-closed")
+
+	infos, err := List(mux, ListOpts{All: true, Dir: repo})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	hasWindow := map[string]bool{}
+	for _, info := range infos {
+		if info.OrgRepo != "testorg/testrepo" {
+			t.Errorf("unexpected org/repo %q for task %q", info.OrgRepo, info.Name)
+		}
 		hasWindow[info.Name] = info.HasWindow
 	}
 	want := map[string]bool{"task-open": true, "task-closed": false}
