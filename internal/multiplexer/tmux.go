@@ -81,7 +81,7 @@ func (t *Tmux) setupPanes(windowName string, dir string, layout config.Layout) e
 	}
 
 	if len(panes) > 1 {
-		sizes := calculateSizes(panes, t.windowHeight())
+		sizes := t.calculateSizes(panes, t.windowHeight())
 
 		for i := 1; i < len(panes); i++ {
 			splitSize := 0
@@ -98,7 +98,7 @@ func (t *Tmux) setupPanes(windowName string, dir string, layout config.Layout) e
 
 	for i, pane := range panes {
 		target := fmt.Sprintf("%s.%d", windowName, i)
-		sendPaneCommands(target, pane)
+		t.sendPaneCommands(target, pane)
 	}
 
 	focusIdx := 0
@@ -128,9 +128,9 @@ func (t *Tmux) windowHeight() int {
 	return h
 }
 
-func sendPaneCommands(target string, pane config.Pane) {
+func (t *Tmux) sendPaneCommands(target string, pane config.Pane) {
 	if len(pane.Commands) > 0 {
-		run, prime := buildChainedCommand(pane.Commands)
+		run, prime := t.buildChainedCommand(pane.Commands)
 		if run != "" {
 			_ = exec.Command("tmux", "send-keys", "-t", target, run, "Enter").Run()
 		}
@@ -159,7 +159,7 @@ func sendPaneCommands(target string, pane config.Pane) {
 // buildChainedCommand collapses a Pane's command list into a single run
 // command (chained with &&) and at most one prime command left typed but not
 // executed.
-func buildChainedCommand(commands []config.Command) (string, string) {
+func (t *Tmux) buildChainedCommand(commands []config.Command) (string, string) {
 	var runCmds []string
 	var primeCmd string
 
@@ -181,11 +181,7 @@ func buildChainedCommand(commands []config.Command) (string, string) {
 // calculateSizes converts each Pane's percentage size into absolute lines of
 // the given window height. Panes without an explicit size share the remaining
 // percentage evenly.
-func calculateSizes(panes []config.Pane, windowHeight int) []int {
-	if len(panes) <= 1 {
-		return []int{100}
-	}
-
+func (t *Tmux) calculateSizes(panes []config.Pane, windowHeight int) []int {
 	sizes := make([]int, len(panes))
 
 	specifiedTotal := 0

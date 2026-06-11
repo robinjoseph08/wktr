@@ -21,7 +21,9 @@ type openedWindow struct {
 
 // fakeMultiplexer implements multiplexer.Multiplexer and records every call
 // so orchestration tests can assert on what the workspace layer asked for.
-// openErr and focusErr, when set, are returned from the corresponding calls.
+// openErr and focusErr, when set, are returned from the corresponding calls;
+// the call is still recorded, but a failed OpenWindow does not register the
+// Window as existing.
 type fakeMultiplexer struct {
 	inside   bool
 	windows  map[string]bool
@@ -41,20 +43,17 @@ func (f *fakeMultiplexer) Detect() bool {
 }
 
 func (f *fakeMultiplexer) OpenWindow(name, dir string, layout config.Layout) error {
+	f.opened = append(f.opened, openedWindow{name: name, dir: dir, layout: layout})
 	if f.openErr != nil {
 		return f.openErr
 	}
-	f.opened = append(f.opened, openedWindow{name: name, dir: dir, layout: layout})
 	f.windows[name] = true
 	return nil
 }
 
 func (f *fakeMultiplexer) FocusWindow(name string) error {
-	if f.focusErr != nil {
-		return f.focusErr
-	}
 	f.focused = append(f.focused, name)
-	return nil
+	return f.focusErr
 }
 
 func (f *fakeMultiplexer) WindowExists(name string) bool {
