@@ -16,9 +16,7 @@ This is a single-context repo:
 ```
 /
 ├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-named-multiplexer-backends.md
-│   └── 0002-multiplexer-selection.md
+├── docs/adr/   (one NNNN-slug.md file per decision)
 ├── cmd/
 └── internal/
 ```

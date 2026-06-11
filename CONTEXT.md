@@ -9,7 +9,7 @@ A named unit of work, realized as a git branch plus a Worktree and opened in a W
 _Avoid_: feature, job, ticket
 
 **Worktree**:
-The git checkout backing a Task, namespaced by org/repo under the worktree directory.
+The git working copy backing a Task, namespaced by org/repo under the worktree directory.
 _Avoid_: checkout, clone
 
 **Window**:
@@ -55,3 +55,7 @@ The uncommitted `.wktr.local.yaml` at a repo's root, holding personal machine-sp
 
 - "tab" (herdr's word) was used interchangeably with "window" (tmux's word) for the per-Task surface. Resolved: **Window** is the canonical term regardless of Multiplexer.
 - "backend" and "multiplexer" were used interchangeably. Resolved: **Multiplexer** is the domain term; "backend" refers only to the Go implementations and stays out of user-facing language.
+
+## Status
+
+Parts of this model are decided (see `docs/adr/`) but not yet implemented: herdr as a Multiplexer, per-key config resolution, Tasks open in more than one Multiplexer, and honoring a Layout's direction. The code currently drives tmux only.
