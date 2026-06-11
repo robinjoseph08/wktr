@@ -41,15 +41,14 @@ func (h *Herdr) OpenWindow(name, dir string, layout config.Layout) error {
 	// opens. The layout parameter stays so the Multiplexer interface holds.
 	_ = layout
 
+	// Errors from createTab and focusTab already identify the herdr
+	// subcommand that failed, so they propagate unwrapped.
 	created, err := h.createTab(name, dir)
 	if err != nil {
-		return fmt.Errorf("failed to create herdr tab: %w", err)
+		return err
 	}
 	// The tab is created without focus and focused only after setup.
-	if err := h.focusTab(created.Tab.TabID); err != nil {
-		return fmt.Errorf("failed to focus herdr tab: %w", err)
-	}
-	return nil
+	return h.focusTab(created.Tab.TabID)
 }
 
 func (h *Herdr) FocusWindow(name string) error {
@@ -149,10 +148,14 @@ func (h *Herdr) command(noun, verb string, extra ...string) (json.RawMessage, er
 			return envelope.Result, nil
 		}
 	}
+	detail := strings.TrimSpace(string(out))
 	if runErr != nil {
-		return nil, fmt.Errorf("herdr %s: %w: %s", subcommand, runErr, strings.TrimSpace(string(out)))
+		if detail == "" {
+			return nil, fmt.Errorf("herdr %s: %w", subcommand, runErr)
+		}
+		return nil, fmt.Errorf("herdr %s: %w: %s", subcommand, runErr, detail)
 	}
-	return nil, fmt.Errorf("herdr %s: unexpected output: %s", subcommand, strings.TrimSpace(string(out)))
+	return nil, fmt.Errorf("herdr %s: unexpected output: %q", subcommand, detail)
 }
 
 func parseTabCreated(result []byte) (herdrTabCreated, error) {

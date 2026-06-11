@@ -14,7 +14,7 @@ _Avoid_: checkout, clone
 
 **Window**:
 The Multiplexer surface opened for a Task, holding its Panes.
-_Avoid_: tab (herdr's word for its realization of a Window). One carve-out: herdr backend error messages say "herdr tab" because they describe the concrete herdr operation that failed, and herdr has its own unrelated window concept that "herdr window" would collide with.
+_Avoid_: tab (herdr's word for its realization of a Window). One carve-out: herdr backend error messages and docs explaining the herdr mapping say "tab" because they describe the concrete herdr surface, and herdr has its own unrelated window concept that "herdr window" would collide with.
 
 **Multiplexer**:
 The terminal program (tmux or herdr) that hosts Windows.
