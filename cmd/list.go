@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/robinjoseph08/wktr/internal/multiplexer"
 	"github.com/robinjoseph08/wktr/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -14,7 +15,7 @@ var listCmd = &cobra.Command{
 	Short: "List active worktrees",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		infos, err := workspace.List(workspace.ListOpts{All: listAll})
+		infos, err := workspace.List(multiplexer.NewTmux(), workspace.ListOpts{All: listAll})
 		if err != nil {
 			return err
 		}

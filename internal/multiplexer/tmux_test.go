@@ -1,4 +1,4 @@
-package tmux
+package multiplexer
 
 import (
 	"testing"
@@ -6,9 +6,21 @@ import (
 	"github.com/robinjoseph08/wktr/internal/config"
 )
 
+func TestDetect(t *testing.T) {
+	t.Setenv("TMUX", "/tmp/tmux-501/default,1234,0")
+	if !NewTmux().Detect() {
+		t.Error("expected Detect to be true when TMUX is set")
+	}
+
+	t.Setenv("TMUX", "")
+	if NewTmux().Detect() {
+		t.Error("expected Detect to be false when TMUX is empty")
+	}
+}
+
 func TestCalculateSizes_EvenDistribution(t *testing.T) {
 	panes := []config.Pane{{}, {}, {}}
-	sizes := calculateSizesForHeight(panes, 99)
+	sizes := NewTmux().calculateSizes(panes, 99)
 
 	// 3 panes, no explicit size = 33% each. 33 * 99 / 100 = 32
 	for i, size := range sizes {
@@ -25,7 +37,7 @@ func TestCalculateSizes_WithExplicitSizes(t *testing.T) {
 		{},
 		{},
 	}
-	sizes := calculateSizesForHeight(panes, 100)
+	sizes := NewTmux().calculateSizes(panes, 100)
 
 	if sizes[0] != 50 {
 		t.Errorf("pane 0: expected 50, got %d", sizes[0])
@@ -40,10 +52,11 @@ func TestCalculateSizes_WithExplicitSizes(t *testing.T) {
 
 func TestCalculateSizes_SinglePane(t *testing.T) {
 	panes := []config.Pane{{}}
-	sizes := calculateSizesForHeight(panes, 60)
+	sizes := NewTmux().calculateSizes(panes, 60)
 
-	if len(sizes) != 1 || sizes[0] != 100 {
-		t.Errorf("expected [100], got %v", sizes)
+	// A single pane with no explicit size gets the full window height.
+	if len(sizes) != 1 || sizes[0] != 60 {
+		t.Errorf("expected [60], got %v", sizes)
 	}
 }
 
@@ -84,7 +97,7 @@ func TestBuildChainedCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			run, prime := buildChainedCommand(tt.commands)
+			run, prime := NewTmux().buildChainedCommand(tt.commands)
 			if run != tt.wantRun {
 				t.Errorf("run: got %q, want %q", run, tt.wantRun)
 			}
@@ -93,69 +106,6 @@ func TestBuildChainedCommand(t *testing.T) {
 			}
 		})
 	}
-}
-
-func calculateSizesForHeight(panes []config.Pane, height int) []int {
-	if len(panes) <= 1 {
-		return []int{100}
-	}
-
-	sizes := make([]int, len(panes))
-
-	specifiedTotal := 0
-	unspecifiedCount := 0
-	for _, p := range panes {
-		if p.Size > 0 {
-			specifiedTotal += p.Size
-		} else {
-			unspecifiedCount++
-		}
-	}
-
-	remainingPercent := 100 - specifiedTotal
-	defaultSize := 0
-	if unspecifiedCount > 0 {
-		defaultSize = remainingPercent / unspecifiedCount
-	}
-
-	for i, p := range panes {
-		if p.Size > 0 {
-			sizes[i] = p.Size * height / 100
-		} else {
-			sizes[i] = defaultSize * height / 100
-		}
-	}
-
-	return sizes
-}
-
-func buildChainedCommand(commands []config.Command) (string, string) {
-	var runCmds []string
-	var primeCmd string
-
-	for _, c := range commands {
-		run := true
-		if c.Run != nil {
-			run = *c.Run
-		}
-		if run {
-			runCmds = append(runCmds, c.Value)
-		} else {
-			primeCmd = c.Value
-		}
-	}
-
-	runStr := ""
-	if len(runCmds) > 0 {
-		for i, cmd := range runCmds {
-			if i > 0 {
-				runStr += " && "
-			}
-			runStr += cmd
-		}
-	}
-
-	return runStr, primeCmd
 }
 
 func boolPtr(b bool) *bool {

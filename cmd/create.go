@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/robinjoseph08/wktr/internal/multiplexer"
 	"github.com/robinjoseph08/wktr/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +19,7 @@ var createCmd = &cobra.Command{
 		if len(args) > 0 {
 			opts.Name = args[0]
 		}
-		return workspace.Create(opts)
+		return workspace.Create(multiplexer.NewTmux(), opts)
 	},
 }
 
