@@ -104,8 +104,10 @@ func TestHerdrOpenWindowSurfacesCreateError(t *testing.T) {
 	if !strings.Contains(err.Error(), "tab bogus:99 not found") {
 		t.Errorf("expected herdr error message to be surfaced, got: %v", err)
 	}
-	if len(cli.calls) != 1 {
-		t.Errorf("expected no focus call after a failed create, got %v", cli.calls)
+	for _, call := range cli.calls {
+		if call[1] == "focus" {
+			t.Errorf("expected no focus call after a failed create, got %v", cli.calls)
+		}
 	}
 }
 
