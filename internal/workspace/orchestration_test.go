@@ -270,6 +270,28 @@ func TestResumePassesResolvedMultiplexerToSelector(t *testing.T) {
 	}
 }
 
+func TestResumeDefaultsSelectorValueToAuto(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+
+	mux := newFakeMultiplexer()
+	if err := Create(selectorFor(mux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var gotValue string
+	selector := func(value string) (multiplexer.Multiplexer, error) {
+		gotValue = value
+		return mux, nil
+	}
+
+	if err := Resume(selector, ResumeOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if gotValue != "auto" {
+		t.Errorf("expected default multiplexer %q passed to selector, got %q", "auto", gotValue)
+	}
+}
+
 func TestCreateReturnsOpenWindowError(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
