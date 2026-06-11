@@ -76,7 +76,10 @@ func Create(opts CreateOpts) error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
-	resolved := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	resolved, err := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	if err != nil {
+		return err
+	}
 
 	name := opts.Name
 	if name != "" {
@@ -149,7 +152,10 @@ func Resume(opts ResumeOpts) error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
-	resolved := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	resolved, err := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	if err != nil {
+		return err
+	}
 
 	name := opts.Name
 	if name == "" {
@@ -212,7 +218,10 @@ func Remove(opts RemoveOpts) error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
-	resolved := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	resolved, err := config.Resolve(globalCfg, mainWorktree, orgRepo.String())
+	if err != nil {
+		return err
+	}
 
 	name := opts.Name
 	if name == "" {

@@ -57,8 +57,8 @@ worktree_directory: ~/.worktrees
 # Branch name prefix (default: wktr/)
 branch_prefix: wktr/
 
-# Default layout for repos without a .wktr.yaml
-default_layout:
+# Layout for repos that don't set their own
+layout:
   direction: vertical
   panes:
     - command: "claude --dangerously-skip-permissions"
@@ -134,20 +134,32 @@ layout:
 
 ### Config precedence
 
+Every level accepts the same per-repo keys (currently just `layout`). Each key resolves independently down the levels, and the first level that sets it wins:
+
 1. `.wktr.local.yaml` (highest priority)
 2. `.wktr.yaml`
 3. Global `repos[org/repo]` entry
-4. Global `default_layout`
+4. Global top-level `layout`
 5. Built-in default (single empty shell pane)
 
-Each level fully replaces the layout — no merging.
+A file that omits a key is transparent for that key. For example, a `.wktr.local.yaml` without a `layout` key doesn't hide the layout in `.wktr.yaml`; resolution just continues to the next level.
+
+`layout` itself is atomic: the winning level's layout applies wholesale, and panes are never merged across levels.
+
+Global-only keys (`worktree_directory`, `branch_prefix`, `repos`) live solely in the global config.
+
+Note: the global `default_layout` key was renamed to `layout`. Configs that still use `default_layout` fail to load with an error pointing at the rename.
+
+### Layout options
+
+A layout has a `direction` and a list of `panes`. `direction` must be `vertical` or `horizontal`; any other value fails at load time.
 
 ### Pane options
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `command` | string | `""` | Command to type in the pane |
-| `commands` | list | — | Multiple commands (overrides `command`) |
+| `commands` | list | none | Multiple commands (overrides `command`) |
 | `run` | bool | `true` | Whether to execute the command (false = type only) |
 | `size` | int | even split | Pane height as percentage |
 | `focus` | bool | `false` | Whether this pane gets focus after creation |

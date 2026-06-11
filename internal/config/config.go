@@ -27,13 +27,13 @@ type Layout struct {
 }
 
 type RepoConfig struct {
-	Layout Layout `yaml:"layout"`
+	Layout *Layout `yaml:"layout,omitempty"`
 }
 
 type GlobalConfig struct {
 	WorktreeDirectory string                `yaml:"worktree_directory"`
 	BranchPrefix      string                `yaml:"branch_prefix"`
-	DefaultLayout     *Layout               `yaml:"default_layout,omitempty"`
+	Layout            *Layout               `yaml:"layout,omitempty"`
 	Repos             map[string]RepoConfig `yaml:"repos,omitempty"`
 }
 
@@ -54,7 +54,7 @@ func DefaultGlobalConfig() GlobalConfig {
 func DefaultLayout() Layout {
 	return Layout{
 		Direction: "vertical",
-		Panes:    []Pane{{}},
+		Panes:     []Pane{{}},
 	}
 }
 
@@ -85,6 +85,13 @@ func LoadGlobalFrom(path string) (GlobalConfig, error) {
 		return cfg, err
 	}
 
+	var legacy struct {
+		DefaultLayout *yaml.Node `yaml:"default_layout"`
+	}
+	if err := yaml.Unmarshal(data, &legacy); err == nil && legacy.DefaultLayout != nil {
+		return cfg, fmt.Errorf("invalid %s: %q has been renamed to %q", path, "default_layout", "layout")
+	}
+
 	var fileCfg GlobalConfig
 	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
 		return cfg, err
@@ -96,76 +103,88 @@ func LoadGlobalFrom(path string) (GlobalConfig, error) {
 	if fileCfg.BranchPrefix != "" {
 		cfg.BranchPrefix = fileCfg.BranchPrefix
 	}
-	if fileCfg.DefaultLayout != nil {
-		cfg.DefaultLayout = fileCfg.DefaultLayout
+	if fileCfg.Layout != nil {
+		cfg.Layout = fileCfg.Layout
 	}
 	if fileCfg.Repos != nil {
 		cfg.Repos = fileCfg.Repos
 	}
 
+	if err := validateLayout(cfg.Layout); err != nil {
+		return cfg, fmt.Errorf("invalid %s: %w", path, err)
+	}
+	for orgRepo, rc := range cfg.Repos {
+		if err := validateLayout(rc.Layout); err != nil {
+			return cfg, fmt.Errorf("invalid %s: repos entry %q: %w", path, orgRepo, err)
+		}
+	}
+
 	return cfg, nil
 }
 
-func LoadRepo(dir string) (*Layout, error) {
-	localPath := filepath.Join(dir, ".wktr.local.yaml")
-	layout, err := loadLayoutFile(localPath)
-	if err == nil {
-		return layout, nil
+// Resolve builds the effective config for a repo. Each per-repo setting
+// resolves independently down the hierarchy: Local config, Repo config,
+// global repos entry, global top level, built-in default. A file that omits
+// a key is transparent for that key.
+func Resolve(global GlobalConfig, repoDir string, orgRepo string) (ResolvedConfig, error) {
+	local, err := loadRepoFile(filepath.Join(repoDir, ".wktr.local.yaml"))
+	if err != nil {
+		return ResolvedConfig{}, err
 	}
-	if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("invalid %s: %w", localPath, err)
-	}
-
-	repoPath := filepath.Join(dir, ".wktr.yaml")
-	layout, err = loadLayoutFile(repoPath)
-	if err == nil {
-		return layout, nil
-	}
-	if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("invalid %s: %w", repoPath, err)
+	repo, err := loadRepoFile(filepath.Join(repoDir, ".wktr.yaml"))
+	if err != nil {
+		return ResolvedConfig{}, err
 	}
 
-	return nil, nil
-}
-
-func Resolve(global GlobalConfig, repoDir string, orgRepo string) ResolvedConfig {
-	resolved := ResolvedConfig{
+	return ResolvedConfig{
 		WorktreeDirectory: global.WorktreeDirectory,
 		BranchPrefix:      global.BranchPrefix,
-	}
-
-	repoLayout, _ := LoadRepo(repoDir)
-	if repoLayout != nil {
-		resolved.Layout = *repoLayout
-		return resolved
-	}
-
-	if rc, ok := global.Repos[orgRepo]; ok {
-		resolved.Layout = rc.Layout
-		return resolved
-	}
-
-	if global.DefaultLayout != nil {
-		resolved.Layout = *global.DefaultLayout
-		return resolved
-	}
-
-	resolved.Layout = DefaultLayout()
-	return resolved
+		Layout:            resolveLayout(local.Layout, repo.Layout, global.Repos[orgRepo].Layout, global.Layout),
+	}, nil
 }
 
-func loadLayoutFile(path string) (*Layout, error) {
+// resolveLayout picks the first level that sets a layout. The winning layout
+// applies wholesale: panes are never merged across levels.
+func resolveLayout(levels ...*Layout) Layout {
+	for _, layout := range levels {
+		if layout != nil {
+			return *layout
+		}
+	}
+	return DefaultLayout()
+}
+
+func loadRepoFile(path string) (RepoConfig, error) {
+	var rc RepoConfig
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return rc, nil
+		}
+		return rc, err
 	}
 
-	var rc RepoConfig
 	if err := yaml.Unmarshal(data, &rc); err != nil {
-		return nil, err
+		return RepoConfig{}, fmt.Errorf("invalid %s: %w", path, err)
+	}
+	if err := validateLayout(rc.Layout); err != nil {
+		return RepoConfig{}, fmt.Errorf("invalid %s: %w", path, err)
 	}
 
-	return &rc.Layout, nil
+	return rc, nil
+}
+
+func validateLayout(layout *Layout) error {
+	if layout == nil {
+		return nil
+	}
+	switch layout.Direction {
+	case "", "vertical", "horizontal":
+		return nil
+	default:
+		return fmt.Errorf("invalid layout direction %q (must be %q or %q)", layout.Direction, "vertical", "horizontal")
+	}
 }
 
 func expandHome(path string) string {

@@ -25,7 +25,7 @@ func TestWriteAndLoadRepoConfig(t *testing.T) {
 	dir := t.TempDir()
 
 	rc := RepoConfig{
-		Layout: Layout{
+		Layout: &Layout{
 			Direction: "horizontal",
 			Panes: []Pane{
 				{Command: "make build"},
@@ -38,10 +38,11 @@ func TestWriteAndLoadRepoConfig(t *testing.T) {
 		t.Fatalf("failed to write: %v", err)
 	}
 
-	layout, err := LoadRepo(dir)
+	resolved, err := Resolve(GlobalConfig{}, dir, "org/repo")
 	if err != nil {
 		t.Fatalf("failed to load: %v", err)
 	}
+	layout := resolved.Layout
 	if layout.Direction != "horizontal" {
 		t.Errorf("expected horizontal, got %q", layout.Direction)
 	}
@@ -60,9 +61,9 @@ func TestWriteAndLoadLocalConfig(t *testing.T) {
 	dir := t.TempDir()
 
 	rc := RepoConfig{
-		Layout: Layout{
+		Layout: &Layout{
 			Direction: "vertical",
-			Panes:    []Pane{{Command: "local-cmd"}},
+			Panes:     []Pane{{Command: "local-cmd"}},
 		},
 	}
 
@@ -70,12 +71,12 @@ func TestWriteAndLoadLocalConfig(t *testing.T) {
 		t.Fatalf("failed to write: %v", err)
 	}
 
-	layout, err := LoadRepo(dir)
+	resolved, err := Resolve(GlobalConfig{}, dir, "org/repo")
 	if err != nil {
 		t.Fatalf("failed to load: %v", err)
 	}
-	if layout.Panes[0].Command != "local-cmd" {
-		t.Errorf("expected 'local-cmd', got %q", layout.Panes[0].Command)
+	if resolved.Layout.Panes[0].Command != "local-cmd" {
+		t.Errorf("expected 'local-cmd', got %q", resolved.Layout.Panes[0].Command)
 	}
 }
 
@@ -88,9 +89,9 @@ func TestWriteAndLoadGlobalRoundTrip(t *testing.T) {
 		BranchPrefix:      "feat/",
 		Repos: map[string]RepoConfig{
 			"org/repo": {
-				Layout: Layout{
+				Layout: &Layout{
 					Direction: "vertical",
-					Panes:    []Pane{{Command: "go test ./..."}},
+					Panes:     []Pane{{Command: "go test ./..."}},
 				},
 			},
 		},
@@ -134,9 +135,9 @@ func TestGlobalRepoEntryExists(t *testing.T) {
 		BranchPrefix:      "wktr/",
 		Repos: map[string]RepoConfig{
 			"org/repo": {
-				Layout: Layout{
+				Layout: &Layout{
 					Direction: "vertical",
-					Panes:    []Pane{{Command: "test"}},
+					Panes:     []Pane{{Command: "test"}},
 				},
 			},
 		},
