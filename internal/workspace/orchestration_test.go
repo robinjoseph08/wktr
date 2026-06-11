@@ -130,7 +130,7 @@ func TestCreateOutsideBothMultiplexers(t *testing.T) {
 }
 
 func TestCreateErrorsWhenBothMultiplexersDetected(t *testing.T) {
-	repo, _ := initOrchestrationRepo(t)
+	repo, worktreeBase := initOrchestrationRepo(t)
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1234,0")
 	t.Setenv("HERDR_ENV", "1")
 
@@ -140,6 +140,11 @@ func TestCreateErrorsWhenBothMultiplexersDetected(t *testing.T) {
 	err := Create(multiplexer.SelectFromEnv, CreateOpts{Name: "my-task", Dir: repo})
 	if err == nil || !strings.Contains(err.Error(), "pin") {
 		t.Fatalf("expected error telling the user to pin multiplexer, got %v", err)
+	}
+	// Selection fails before any worktree is created.
+	wantDir := filepath.Join(worktreeBase, "testorg", "testrepo", "my-task")
+	if _, statErr := os.Stat(wantDir); !os.IsNotExist(statErr) {
+		t.Errorf("expected no worktree dir, stat err: %v", statErr)
 	}
 }
 

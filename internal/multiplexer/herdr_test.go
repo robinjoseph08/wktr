@@ -290,6 +290,15 @@ func TestHerdrKillWindowIsBestEffort(t *testing.T) {
 		}
 	}
 
+	// A failing tab listing issues no close call and does not panic.
+	cli = &fakeHerdrCLI{errs: map[string]error{"tab list": errors.New("exit status 1")}}
+	newHerdrWithCLI(cli).KillWindow("my-task")
+	for _, call := range cli.calls {
+		if call[1] == "close" {
+			t.Errorf("expected no close call when the listing fails, got %v", cli.calls)
+		}
+	}
+
 	// A failing close is swallowed. The not-found fixture was recorded from
 	// a different failing command; it stands in for any error envelope
 	// since only the envelope shape matters here.

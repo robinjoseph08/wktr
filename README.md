@@ -155,7 +155,7 @@ The key resolves at every config level with the same per-key fallthrough as `lay
 
 Only `create` and `resume` resolve the setting; `remove` and `list` never need it. Note that `remove` and `list` currently only see tmux windows, so `wktr remove` does not close a herdr tab yet; multiplexer-agnostic cleanup is a planned follow-up.
 
-In herdr, a task's window is a tab labeled with the task name, created in whatever herdr workspace you are currently in. wktr never creates or manages herdr workspaces. Herdr tabs currently open with a single default pane; pane layouts are not applied in herdr yet.
+In herdr, a task's window is a tab labeled with the task name, created in whatever herdr workspace you are currently in. wktr never creates or manages herdr workspaces. Lookup by label (for example when `resume` refocuses an existing tab) spans all herdr workspaces, like tmux's search across all sessions. Herdr tabs currently open with a single default pane; pane layouts are not applied in herdr yet.
 
 ### Config precedence
 
