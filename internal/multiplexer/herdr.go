@@ -47,7 +47,9 @@ func (h *Herdr) OpenWindow(name, dir string, layout config.Layout) error {
 	if err != nil {
 		return err
 	}
-	// The tab is created without focus and focused only after setup.
+	// The tab is created without focus and focused only after setup. Setup
+	// is empty in this slice; the Layout follow-up will run between create
+	// and focus.
 	return h.focusTab(created.Tab.TabID)
 }
 
@@ -122,11 +124,12 @@ func (h *Herdr) findTab(name string) (*herdrTab, error) {
 }
 
 // herdrEnvelope is the JSON wrapper around every herdr CLI response: a result
-// payload on success or an error object on failure.
+// payload on success or an error object on failure. The envelope also carries
+// a machine-readable error code (see the recorded fixtures); only the message
+// is decoded because nothing consumes the code yet.
 type herdrEnvelope struct {
 	Result json.RawMessage `json:"result"`
 	Error  *struct {
-		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
 }
