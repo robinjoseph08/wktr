@@ -566,6 +566,11 @@ func TestHerdrSplitRatios(t *testing.T) {
 		want  []float64
 	}{
 		{
+			name:  "no panes need no splits",
+			panes: nil,
+			want:  []float64{},
+		},
+		{
 			name:  "single pane needs no splits",
 			panes: []config.Pane{{}},
 			want:  []float64{},

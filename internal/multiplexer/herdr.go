@@ -245,6 +245,11 @@ func (h *Herdr) findTab(name string) (*herdrTab, error) {
 // 0.1..0.9 range), so the 1.0 a zero-percent tail produces yields a thin
 // bottom pane rather than a failed split.
 func splitRatios(panes []config.Pane) []float64 {
+	// No Panes need no ratios; the guard also keeps the capacity arithmetic
+	// below non-negative.
+	if len(panes) == 0 {
+		return nil
+	}
 	percents := normalizePercentages(panes)
 	ratios := make([]float64, 0, len(panes)-1)
 	for i := 1; i < len(panes); i++ {
