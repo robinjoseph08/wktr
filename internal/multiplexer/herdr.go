@@ -17,8 +17,9 @@ import (
 // JSON, so the backend threads IDs from command output to command input and
 // never constructs them. Tabs are created in whatever workspace the user is
 // in; wktr never creates or manages herdr workspaces. Splits are sized by
-// ratio rather than tmux's absolute lines, run commands use herdr's atomic
-// run operation, and prime commands use its send-text operation.
+// ratio rather than tmux's absolute lines or columns, run commands use
+// herdr's atomic run operation, and prime commands use its send-text
+// operation.
 type Herdr struct {
 	// run invokes the herdr CLI and returns the JSON envelope it emitted.
 	// Tests replace it to replay recorded fixtures.
