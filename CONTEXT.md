@@ -56,7 +56,3 @@ The `.wktr.local.yaml` at a repo's root, holding personal machine-specific overr
 
 - "tab" (herdr's word) was used interchangeably with "window" (tmux's word) for the per-Task surface. Resolved: **Window** is the canonical term regardless of Multiplexer.
 - "backend" and "multiplexer" were used interchangeably. Resolved: **Multiplexer** is the domain term; "backend" refers only to the Go implementations and stays out of user-facing language.
-
-## Status
-
-One part of this model is decided (see `docs/adr/`) but not yet implemented: honoring a Layout's direction (direction is validated at load but not yet applied). `create` and `resume` select between tmux and herdr per ADR-0002, and both Multiplexers apply the Layout (Pane splits, run and prime commands, focus) when opening a Window. `remove` and `list` are Multiplexer-agnostic: removing a Task closes its Windows in every Multiplexer, and `list` reports a Window as open when any Multiplexer has one.

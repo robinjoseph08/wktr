@@ -22,7 +22,8 @@ type Multiplexer interface {
 	// Multiplexer.
 	Detect() bool
 	// OpenWindow opens a new Window named name rooted at dir and applies
-	// the Layout: pane splits, run and prime commands, and focus.
+	// the Layout: Pane splits along its direction, run and prime commands,
+	// and focus.
 	OpenWindow(name, dir string, layout config.Layout) error
 	// FocusWindow switches to the existing Window named name.
 	FocusWindow(name string) error

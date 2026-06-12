@@ -10,6 +10,14 @@ import (
 // how they express a split's size (tmux in absolute lines, herdr as a ratio),
 // but they normalize a Layout's configured percentages identically.
 
+// isHorizontal reports whether a Layout direction means side-by-side Panes.
+// Anything else means the top-to-bottom default: config validation only
+// admits "", "vertical", and "horizontal", and an unset direction is
+// vertical.
+func isHorizontal(direction string) bool {
+	return direction == "horizontal"
+}
+
 // normalizePercentages resolves each Pane's configured percentage size. Panes
 // without an explicit size share the remaining percentage evenly.
 func normalizePercentages(panes []config.Pane) []int {

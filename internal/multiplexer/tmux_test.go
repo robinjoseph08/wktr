@@ -60,6 +60,53 @@ func TestCalculateSizes_SinglePane(t *testing.T) {
 	}
 }
 
+func TestCalculateSizes_HorizontalLayoutsFeedTheWindowWidth(t *testing.T) {
+	// calculateSizes is axis-agnostic: a horizontal Layout runs the window
+	// width (here 200 columns) through the same percentage math a vertical
+	// one runs the height through.
+	panes := []config.Pane{
+		{Size: 50},
+		{},
+		{},
+	}
+	sizes := NewTmux().calculateSizes(panes, 200)
+
+	want := []int{100, 50, 50}
+	for i, size := range sizes {
+		if size != want[i] {
+			t.Errorf("pane %d: expected %d columns, got %d", i, want[i], size)
+		}
+	}
+}
+
+func TestTmuxSplitGeometry(t *testing.T) {
+	tests := []struct {
+		name      string
+		direction string
+		wantFlag  string
+		wantDim   string
+	}{
+		{name: "unset direction defaults to vertical", direction: "", wantFlag: "-v", wantDim: "#{window_height}"},
+		{name: "vertical stacks panes with -v splits sized from the height", direction: "vertical", wantFlag: "-v", wantDim: "#{window_height}"},
+		{name: "horizontal places panes side by side with -h splits sized from the width", direction: "horizontal", wantFlag: "-h", wantDim: "#{window_width}"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			geo := tmuxSplitGeometry(tt.direction)
+			if geo.flag != tt.wantFlag {
+				t.Errorf("flag: got %q, want %q", geo.flag, tt.wantFlag)
+			}
+			if geo.dimension != tt.wantDim {
+				t.Errorf("dimension: got %q, want %q", geo.dimension, tt.wantDim)
+			}
+			if geo.fallback <= 0 {
+				t.Errorf("fallback: got %d, want a positive dimension", geo.fallback)
+			}
+		})
+	}
+}
+
 func TestBuildChainedCommand(t *testing.T) {
 	tests := []struct {
 		name      string
