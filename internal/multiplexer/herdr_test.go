@@ -155,6 +155,105 @@ func TestHerdrOpenWindowAppliesFullLayout(t *testing.T) {
 	}
 }
 
+// TestHerdrOpenWindowAppliesHorizontalLayout is the horizontal sibling of
+// TestHerdrOpenWindowAppliesFullLayout: the same explicit sizes produce right
+// splits with identical ratios, and the focus Pane is reached as the right
+// neighbor of the Pane before it instead of the down neighbor.
+func TestHerdrOpenWindowAppliesHorizontalLayout(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_focused.json"),
+			"pane focus": fixture(t, "herdr_pane_focused.json"),
+		},
+		queues: map[string][][]byte{
+			"pane split": {
+				fixture(t, "herdr_pane_split.json"),
+				fixture(t, "herdr_pane_split_second.json"),
+			},
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	layout := config.Layout{
+		Direction: "horizontal",
+		Panes: []config.Pane{
+			{Size: 50},
+			{Size: 30, Focus: true},
+			{Size: 20},
+		},
+	}
+
+	if err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+
+	want := [][]string{
+		{"tab", "create", "--no-focus", "--label", "my-task", "--cwd", "/worktrees/org/repo/my-task"},
+		// The ratio math is direction-independent: the left pane keeps the
+		// same fraction of the region a top pane would in a vertical Layout.
+		{"pane", "split", "w653faa4eef9f71-3", "--direction", "right", "--ratio", "0.5000", "--no-focus", "--cwd", "/worktrees/org/repo/my-task"},
+		{"pane", "split", "w65403395f73d84-3", "--direction", "right", "--ratio", "0.6000", "--no-focus", "--cwd", "/worktrees/org/repo/my-task"},
+		// The focus Pane (index 1) sits beside its predecessor, not below it.
+		{"pane", "focus", "--direction", "right", "--pane", "w653faa4eef9f71-3"},
+		{"tab", "focus", "w653faa4eef9f71:2"},
+	}
+	if !reflect.DeepEqual(cli.calls, want) {
+		t.Errorf("herdr calls:\n got %v\nwant %v", cli.calls, want)
+	}
+}
+
+// TestHerdrOpenWindowDefaultsToDownSplits pins the direction default through
+// OpenWindow: a Layout that never sets a direction splits down, exactly as it
+// did before direction was honored.
+func TestHerdrOpenWindowDefaultsToDownSplits(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_focused.json"),
+		},
+		queues: map[string][][]byte{
+			"pane split": {fixture(t, "herdr_pane_split.json")},
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	layout := config.Layout{Panes: []config.Pane{{}, {}}}
+	if err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+
+	want := []string{"pane", "split", "w653faa4eef9f71-3", "--direction", "down", "--ratio", "0.5000", "--no-focus", "--cwd", "/worktrees/org/repo/my-task"}
+	var splitCalls [][]string
+	for _, call := range cli.calls {
+		if call[0] == "pane" && call[1] == "split" {
+			splitCalls = append(splitCalls, call)
+		}
+	}
+	if len(splitCalls) != 1 || !reflect.DeepEqual(splitCalls[0], want) {
+		t.Errorf("split calls: got %v, want exactly one %v", splitCalls, want)
+	}
+}
+
+// TestHerdrSplitDirection is the herdr sibling of TestTmuxSplitGeometry: the
+// Layout direction maps onto herdr's split terms, with the unset default
+// meaning vertical.
+func TestHerdrSplitDirection(t *testing.T) {
+	tests := []struct {
+		direction string
+		want      string
+	}{
+		{direction: "", want: "down"},
+		{direction: "vertical", want: "down"},
+		{direction: "horizontal", want: "right"},
+	}
+	for _, tt := range tests {
+		if got := herdrSplitDirection(tt.direction); got != tt.want {
+			t.Errorf("herdrSplitDirection(%q): got %q, want %q", tt.direction, got, tt.want)
+		}
+	}
+}
+
 // TestHerdrOpenWindowFocusesRootPaneWithoutExplicitFocus checks the focus
 // default: with no Pane marked focus, the root Pane keeps the tab's focus, so
 // no pane focus command is issued before the tab focus.

@@ -155,7 +155,7 @@ The key resolves at every config level with the same per-key fallthrough as `lay
 
 Only `create` and `resume` resolve the setting; `remove` and `list` never need it and work outside both multiplexers. `remove` closes a task's windows in every multiplexer (a missing window or an unreachable multiplexer is silently skipped), closing the window in the multiplexer you are inside last. `list` shows a window as active when it exists in either multiplexer (an unreachable multiplexer counts as having none). `resume` acts only on the selected multiplexer, meaning the one you are inside unless pinned in config: if the task already has a window there, it switches to it; otherwise it opens a fresh window there, even if the task is open in the other multiplexer.
 
-In herdr, a task's window is a tab labeled with the task name, created in whatever herdr workspace you are currently in. wktr never creates or manages herdr workspaces. Lookup by label (for example when `resume` refocuses an existing tab) spans all herdr workspaces, like tmux's search across all sessions. The configured layout applies the same way in either multiplexer: pane sizes (sent to herdr as split ratios rather than tmux's absolute lines), run and prime commands, and the focused pane.
+In herdr, a task's window is a tab labeled with the task name, created in whatever herdr workspace you are currently in. wktr never creates or manages herdr workspaces. Lookup by label (for example when `resume` refocuses an existing tab) spans all herdr workspaces, like tmux's search across all sessions. The configured layout applies the same way in either multiplexer: the split direction, pane sizes (sent to herdr as split ratios rather than tmux's absolute lines or columns), run and prime commands, and the focused pane.
 
 ### Config precedence
 
@@ -177,7 +177,7 @@ Note: the global `default_layout` key was renamed to `layout`. Configs that stil
 
 ### Layout options
 
-A layout has a `direction` and a list of `panes`. `direction` is optional; when set, it must be `vertical` or `horizontal`, and any other value fails at load time.
+A layout has a `direction` and a list of `panes`. `direction` is optional and defaults to `vertical`, which stacks panes top to bottom; `horizontal` places them side by side. Any other value fails at load time.
 
 ### Pane options
 
@@ -186,7 +186,7 @@ A layout has a `direction` and a list of `panes`. `direction` is optional; when 
 | `command` | string | `""` | Command to type in the pane |
 | `commands` | list | none | Multiple commands (overrides `command`) |
 | `run` | bool | `true` | Whether to execute the command (false = type only) |
-| `size` | int | even split | Pane height as percentage |
+| `size` | int | even split | Pane size as a percentage of the window (height in vertical layouts, width in horizontal ones) |
 | `focus` | bool | `false` | Whether this pane gets focus after creation |
 
 ### Commands list format

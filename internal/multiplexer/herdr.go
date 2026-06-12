@@ -17,8 +17,9 @@ import (
 // JSON, so the backend threads IDs from command output to command input and
 // never constructs them. Tabs are created in whatever workspace the user is
 // in; wktr never creates or manages herdr workspaces. Splits are sized by
-// ratio rather than tmux's absolute lines, run commands use herdr's atomic
-// run operation, and prime commands use its send-text operation.
+// ratio rather than tmux's absolute lines or columns, run commands use
+// herdr's atomic run operation, and prime commands use its send-text
+// operation.
 type Herdr struct {
 	// run invokes the herdr CLI and returns the JSON envelope it emitted.
 	// Tests replace it to replay recorded fixtures.
@@ -47,10 +48,10 @@ func (h *Herdr) OpenWindow(name, dir string, layout config.Layout) error {
 	// user never watches the Layout assemble.
 	if err := h.setupPanes(created.RootPane.PaneID, dir, layout); err != nil {
 		// Close the half-assembled tab so a setup failure does not strand
-		// an unfocused tab the user has to hunt down (wktr remove cannot
-		// close herdr tabs yet). Best effort: the setup error is the one
-		// worth reporting. A focus failure below leaves the tab in place,
-		// since by then it is fully built and usable.
+		// an unfocused tab the user has to hunt down. Best effort: the
+		// setup error is the one worth reporting. A focus failure below
+		// leaves the tab in place, since by then it is fully built and
+		// usable.
 		_, _ = h.command("tab", "close", created.Tab.TabID)
 		return err
 	}
@@ -58,8 +59,8 @@ func (h *Herdr) OpenWindow(name, dir string, layout config.Layout) error {
 }
 
 // setupPanes applies the Layout inside a freshly created tab: it splits the
-// root Pane into the configured stack, sends each Pane's run and prime
-// commands, and focuses the configured Pane.
+// root Pane into the configured stack along the Layout direction, sends each
+// Pane's run and prime commands, and focuses the configured Pane.
 func (h *Herdr) setupPanes(rootPaneID, dir string, layout config.Layout) error {
 	panes := layout.Panes
 	if len(panes) == 0 {
@@ -69,11 +70,13 @@ func (h *Herdr) setupPanes(rootPaneID, dir string, layout config.Layout) error {
 	paneIDs := make([]string, len(panes))
 	paneIDs[0] = rootPaneID
 
+	splitDirection := herdrSplitDirection(layout.Direction)
 	ratios := splitRatios(panes)
 	for i := 1; i < len(panes); i++ {
-		// Pane i is created by splitting Pane i-1, top to bottom, so each
-		// split targets the pane ID returned by the previous one.
-		paneID, err := h.splitPane(paneIDs[i-1], dir, ratios[i-1])
+		// Pane i is created by splitting Pane i-1 along the Layout direction
+		// (top to bottom or left to right), so each split targets the pane ID
+		// returned by the previous one.
+		paneID, err := h.splitPane(paneIDs[i-1], dir, splitDirection, ratios[i-1])
 		if err != nil {
 			return err
 		}
@@ -90,7 +93,7 @@ func (h *Herdr) setupPanes(rootPaneID, dir string, layout config.Layout) error {
 	// (verified against a live herdr session), so only a non-root focus
 	// Pane needs an explicit focus.
 	if focusIdx := focusIndex(panes); focusIdx > 0 {
-		return h.focusPaneBelow(paneIDs[focusIdx-1])
+		return h.focusAdjacentPane(paneIDs[focusIdx-1], splitDirection)
 	}
 	return nil
 }
@@ -179,12 +182,23 @@ func (h *Herdr) focusTab(tabID string) error {
 	return err
 }
 
-// splitPane splits the given pane downward, the new pane taking the bottom of
-// the region, and returns the new pane's ID. ratio is the fraction of the
-// region the original (top) pane keeps.
-func (h *Herdr) splitPane(paneID, dir string, ratio float64) (string, error) {
+// herdrSplitDirection maps a Layout direction onto herdr's split terms:
+// vertical Layouts (the default, including an unset direction) stack Panes
+// with down splits, horizontal Layouts place them side by side with right
+// splits.
+func herdrSplitDirection(direction string) string {
+	if isHorizontal(direction) {
+		return "right"
+	}
+	return "down"
+}
+
+// splitPane splits the given pane along direction (down or right), the new
+// pane taking the bottom or right of the region, and returns the new pane's
+// ID. ratio is the fraction of the region the original pane keeps.
+func (h *Herdr) splitPane(paneID, dir, direction string, ratio float64) (string, error) {
 	result, err := h.command("pane", "split", paneID,
-		"--direction", "down",
+		"--direction", direction,
 		"--ratio", strconv.FormatFloat(ratio, 'f', 4, 64),
 		"--no-focus", "--cwd", dir)
 	if err != nil {
@@ -201,12 +215,14 @@ func (h *Herdr) primePane(paneID, text string) error {
 	return h.commandNoResult("pane", "send-text", paneID, text)
 }
 
-// focusPaneBelow focuses the pane directly below the given pane. herdr has no
-// focus-by-ID operation, only focus relative to a reference pane, and the
-// Layout's Panes are stacked top to bottom, so the Pane at index i is the
-// down neighbor of the Pane at index i-1.
-func (h *Herdr) focusPaneBelow(paneID string) error {
-	_, err := h.command("pane", "focus", "--direction", "down", "--pane", paneID)
+// focusAdjacentPane focuses the pane next to the given pane along the split
+// direction: below it in a vertical Layout, to its right in a horizontal
+// one. herdr has no focus-by-ID operation, only focus relative to a
+// reference pane, and the Layout's Panes are stacked along the split
+// direction, so the Pane at index i is the neighbor of the Pane at index
+// i-1.
+func (h *Herdr) focusAdjacentPane(paneID, direction string) error {
+	_, err := h.command("pane", "focus", "--direction", direction, "--pane", paneID)
 	return err
 }
 
@@ -234,9 +250,12 @@ func (h *Herdr) findTab(name string) (*herdrTab, error) {
 
 // splitRatios computes the --ratio for each split that builds the Layout's
 // Pane stack: ratios[i-1] sizes the split of Pane i-1 that creates Pane i
-// (zero-indexed, top to bottom). herdr's ratio is the fraction of the split
-// region kept by the original (top) pane, verified against a live herdr
-// session, so each ratio is Pane i-1's percentage over the percentages of
+// (zero-indexed, ordered along the Layout direction). herdr's ratio is the
+// fraction of the split region kept by the original pane regardless of
+// direction: the top of a down split (verified against a live herdr session)
+// or the left of a right split (verified against herdr's source, whose
+// split_rect sizes the original pane by ratio on both axes), so each ratio
+// is Pane i-1's percentage over the percentages of
 // Panes i-1 through n. When that remainder is zero (every remaining Pane
 // normalized to 0%), the split falls back to dividing the region evenly.
 //

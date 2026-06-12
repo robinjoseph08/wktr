@@ -11,8 +11,9 @@ import (
 )
 
 // Tmux is the tmux backend. It addresses Windows by name across all sessions,
-// sizes splits in absolute lines derived from the window height, and sends
-// run and prime commands via send-keys with or without Enter.
+// sizes splits in absolute lines or columns derived from the window dimension
+// along the Layout direction, and sends run and prime commands via send-keys
+// with or without Enter.
 type Tmux struct{}
 
 var _ Multiplexer = (*Tmux)(nil)
@@ -88,7 +89,8 @@ func (t *Tmux) setupPanes(windowName string, dir string, layout config.Layout) e
 	}
 
 	if len(panes) > 1 {
-		sizes := t.calculateSizes(panes, t.windowHeight())
+		geo := tmuxSplitGeometry(layout.Direction)
+		sizes := t.calculateSizes(panes, t.windowDimension(geo))
 
 		for i := 1; i < len(panes); i++ {
 			splitSize := 0
@@ -96,7 +98,7 @@ func (t *Tmux) setupPanes(windowName string, dir string, layout config.Layout) e
 				splitSize += sizes[j]
 			}
 			target := fmt.Sprintf("%s.%d", windowName, i-1)
-			cmd := exec.Command("tmux", "split-window", "-d", "-v", "-l", strconv.Itoa(splitSize), "-t", target, "-c", dir)
+			cmd := exec.Command("tmux", "split-window", "-d", geo.flag, "-l", strconv.Itoa(splitSize), "-t", target, "-c", dir)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return fmt.Errorf("failed to split pane: %s", strings.TrimSpace(string(out)))
 			}
@@ -116,17 +118,42 @@ func (t *Tmux) setupPanes(windowName string, dir string, layout config.Layout) e
 	return nil
 }
 
-func (t *Tmux) windowHeight() int {
-	cmd := exec.Command("tmux", "display-message", "-p", "#{window_height}")
+// splitGeometry maps a Layout direction onto tmux's split terms: the
+// split-window direction flag, the format variable for the window dimension
+// being divided, and the dimension to assume when tmux cannot report one.
+type splitGeometry struct {
+	flag      string
+	dimension string
+	fallback  int
+}
+
+// tmuxSplitGeometry resolves the geometry for a Layout direction. Vertical
+// (the default, including an unset direction) stacks Panes top to bottom: -v
+// splits sized in lines of the window height. Horizontal places them side by
+// side: -h splits sized in columns of the window width. The fallbacks
+// approximate a full-screen terminal so the percentage math still yields
+// usable splits when tmux cannot be queried.
+func tmuxSplitGeometry(direction string) splitGeometry {
+	if isHorizontal(direction) {
+		return splitGeometry{flag: "-h", dimension: "#{window_width}", fallback: 200}
+	}
+	return splitGeometry{flag: "-v", dimension: "#{window_height}", fallback: 60}
+}
+
+// windowDimension asks tmux for the current window's size along the
+// geometry's axis, falling back to the geometry's default when tmux cannot
+// be queried.
+func (t *Tmux) windowDimension(geo splitGeometry) int {
+	cmd := exec.Command("tmux", "display-message", "-p", geo.dimension)
 	out, err := cmd.Output()
 	if err != nil {
-		return 60
+		return geo.fallback
 	}
-	h, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil {
-		return 60
+		return geo.fallback
 	}
-	return h
+	return n
 }
 
 func (t *Tmux) sendPaneCommands(target string, pane config.Pane) {
@@ -159,13 +186,14 @@ func (t *Tmux) sendPaneCommands(target string, pane config.Pane) {
 	}
 }
 
-// calculateSizes converts each Pane's normalized percentage size into
-// absolute lines of the given window height.
-func (t *Tmux) calculateSizes(panes []config.Pane, windowHeight int) []int {
+// calculateSizes converts each Pane's normalized percentage size into an
+// absolute share of the given window dimension: lines of the height for
+// vertical Layouts, columns of the width for horizontal ones.
+func (t *Tmux) calculateSizes(panes []config.Pane, windowDimension int) []int {
 	percents := normalizePercentages(panes)
 	sizes := make([]int, len(panes))
 	for i, percent := range percents {
-		sizes[i] = percent * windowHeight / 100
+		sizes[i] = percent * windowDimension / 100
 	}
 	return sizes
 }
