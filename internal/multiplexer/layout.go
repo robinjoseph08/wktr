@@ -7,8 +7,9 @@ import (
 )
 
 // Layout math and command shaping shared by every backend. Backends differ in
-// how they express a split's size (tmux in absolute lines, herdr as a ratio),
-// but they normalize a Layout's configured percentages identically.
+// how they express a split's size (tmux in absolute lines or columns, herdr
+// as a ratio), but they normalize a Layout's configured percentages
+// identically.
 
 // isHorizontal reports whether a Layout direction means side-by-side Panes.
 // Anything else means the top-to-bottom default: config validation only

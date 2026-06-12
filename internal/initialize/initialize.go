@@ -173,7 +173,7 @@ func checkExistingConfig(loc configLocationType, repoRoot string, orgRepo git.Or
 }
 
 func promptLayout() (config.Layout, error) {
-	_, direction, err := promptSelect("Pane direction", []string{"vertical", "horizontal"}, 0)
+	_, direction, err := promptSelect("Layout direction", []string{"vertical", "horizontal"}, 0)
 	if err != nil {
 		return config.Layout{}, err
 	}

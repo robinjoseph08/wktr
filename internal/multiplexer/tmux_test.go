@@ -1,6 +1,11 @@
 package multiplexer
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/robinjoseph08/wktr/internal/config"
@@ -80,15 +85,19 @@ func TestCalculateSizes_HorizontalLayoutsFeedTheWindowWidth(t *testing.T) {
 }
 
 func TestTmuxSplitGeometry(t *testing.T) {
+	// The fallbacks are exact-asserted because they only ever run when tmux
+	// cannot be queried, so no manual use would catch a transposed or
+	// mistyped full-screen approximation (60 lines, 200 columns).
 	tests := []struct {
-		name      string
-		direction string
-		wantFlag  string
-		wantDim   string
+		name         string
+		direction    string
+		wantFlag     string
+		wantDim      string
+		wantFallback int
 	}{
-		{name: "unset direction defaults to vertical", direction: "", wantFlag: "-v", wantDim: "#{window_height}"},
-		{name: "vertical stacks panes with -v splits sized from the height", direction: "vertical", wantFlag: "-v", wantDim: "#{window_height}"},
-		{name: "horizontal places panes side by side with -h splits sized from the width", direction: "horizontal", wantFlag: "-h", wantDim: "#{window_width}"},
+		{name: "unset direction defaults to vertical", direction: "", wantFlag: "-v", wantDim: "#{window_height}", wantFallback: 60},
+		{name: "vertical stacks panes with -v splits sized from the height", direction: "vertical", wantFlag: "-v", wantDim: "#{window_height}", wantFallback: 60},
+		{name: "horizontal places panes side by side with -h splits sized from the width", direction: "horizontal", wantFlag: "-h", wantDim: "#{window_width}", wantFallback: 200},
 	}
 
 	for _, tt := range tests {
@@ -100,10 +109,103 @@ func TestTmuxSplitGeometry(t *testing.T) {
 			if geo.dimension != tt.wantDim {
 				t.Errorf("dimension: got %q, want %q", geo.dimension, tt.wantDim)
 			}
-			if geo.fallback <= 0 {
-				t.Errorf("fallback: got %d, want a positive dimension", geo.fallback)
+			if geo.fallback != tt.wantFallback {
+				t.Errorf("fallback: got %d, want %d", geo.fallback, tt.wantFallback)
 			}
 		})
+	}
+}
+
+// installFakeTmux puts a fake tmux executable at the front of PATH that
+// records every invocation's arguments and answers display-message dimension
+// queries with a 120x50 window (values chosen to differ from the fallbacks,
+// proving the dimension is queried rather than assumed). It returns a
+// function that reads the recorded invocations, one per line.
+func installFakeTmux(t *testing.T) func() []string {
+	t.Helper()
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "calls.log")
+	script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %q
+if [ "$1" = "display-message" ]; then
+	case "$3" in
+	'#{window_width}') echo 120 ;;
+	'#{window_height}') echo 50 ;;
+	esac
+fi
+`, logPath)
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake tmux: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return func() []string {
+		out, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatalf("read fake tmux log: %v", err)
+		}
+		return strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	}
+}
+
+// TestTmuxOpenWindowAppliesHorizontalLayout pins the tmux half of Layout
+// direction end to end, the way the herdr sibling does over its CLI fake:
+// OpenWindow on a horizontal Layout queries the window width and issues -h
+// splits sized in columns of it, running the same percentage math the
+// vertical path runs over the height.
+func TestTmuxOpenWindowAppliesHorizontalLayout(t *testing.T) {
+	calls := installFakeTmux(t)
+
+	layout := config.Layout{
+		Direction: "horizontal",
+		Panes: []config.Pane{
+			{Size: 40},
+			{Size: 40, Focus: true},
+			{Size: 20},
+		},
+	}
+	if err := NewTmux().OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+
+	want := []string{
+		"new-window -d -n my-task -c /worktrees/org/repo/my-task",
+		"display-message -p #{window_width}",
+		// 120 columns split 40/40/20 is 48/48/24: the first split carves
+		// 48+24=72 columns off Pane 0 for the rest of the stack, the second
+		// carves 24 off Pane 1 for Pane 2.
+		"split-window -d -h -l 72 -t my-task.0 -c /worktrees/org/repo/my-task",
+		"split-window -d -h -l 24 -t my-task.1 -c /worktrees/org/repo/my-task",
+		"select-window -t my-task",
+		"select-pane -t my-task.1",
+	}
+	if got := calls(); !reflect.DeepEqual(got, want) {
+		t.Errorf("tmux calls:\n got %v\nwant %v", got, want)
+	}
+}
+
+// TestTmuxOpenWindowDefaultsToVerticalSplits pins the direction default
+// through OpenWindow: a Layout that never sets a direction queries the
+// window height and splits with -v, exactly as it did before direction was
+// honored.
+func TestTmuxOpenWindowDefaultsToVerticalSplits(t *testing.T) {
+	calls := installFakeTmux(t)
+
+	layout := config.Layout{Panes: []config.Pane{{}, {}}}
+	if err := NewTmux().OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+
+	want := []string{
+		"new-window -d -n my-task -c /worktrees/org/repo/my-task",
+		"display-message -p #{window_height}",
+		// 50 lines split evenly: the single split carves 25 lines off Pane 0
+		// for Pane 1.
+		"split-window -d -v -l 25 -t my-task.0 -c /worktrees/org/repo/my-task",
+		"select-window -t my-task",
+		"select-pane -t my-task.0",
+	}
+	if got := calls(); !reflect.DeepEqual(got, want) {
+		t.Errorf("tmux calls:\n got %v\nwant %v", got, want)
 	}
 }
 

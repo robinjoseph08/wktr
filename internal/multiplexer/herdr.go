@@ -47,10 +47,10 @@ func (h *Herdr) OpenWindow(name, dir string, layout config.Layout) error {
 	// user never watches the Layout assemble.
 	if err := h.setupPanes(created.RootPane.PaneID, dir, layout); err != nil {
 		// Close the half-assembled tab so a setup failure does not strand
-		// an unfocused tab the user has to hunt down (wktr remove cannot
-		// close herdr tabs yet). Best effort: the setup error is the one
-		// worth reporting. A focus failure below leaves the tab in place,
-		// since by then it is fully built and usable.
+		// an unfocused tab the user has to hunt down. Best effort: the
+		// setup error is the one worth reporting. A focus failure below
+		// leaves the tab in place, since by then it is fully built and
+		// usable.
 		_, _ = h.command("tab", "close", created.Tab.TabID)
 		return err
 	}
@@ -250,9 +250,11 @@ func (h *Herdr) findTab(name string) (*herdrTab, error) {
 // splitRatios computes the --ratio for each split that builds the Layout's
 // Pane stack: ratios[i-1] sizes the split of Pane i-1 that creates Pane i
 // (zero-indexed, ordered along the Layout direction). herdr's ratio is the
-// fraction of the split region kept by the original pane (the top of a down
-// split, verified against a live herdr session, or the left of a right
-// split), so each ratio is Pane i-1's percentage over the percentages of
+// fraction of the split region kept by the original pane regardless of
+// direction: the top of a down split (verified against a live herdr session)
+// or the left of a right split (verified against herdr's source, whose
+// split_rect sizes the original pane by ratio on both axes), so each ratio
+// is Pane i-1's percentage over the percentages of
 // Panes i-1 through n. When that remainder is zero (every remaining Pane
 // normalized to 0%), the split falls back to dividing the region evenly.
 //
