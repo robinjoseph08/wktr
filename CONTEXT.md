@@ -59,4 +59,4 @@ The `.wktr.local.yaml` at a repo's root, holding personal machine-specific overr
 
 ## Status
 
-Parts of this model are decided (see `docs/adr/`) but not yet implemented: applying a Layout in herdr (a Window opened in herdr has only its single default Pane) and honoring a Layout's direction (direction is validated at load but not yet applied). `create` and `resume` select between tmux and herdr per ADR-0002, while `remove` and `list` are Multiplexer-agnostic: removing a Task closes its Windows in every Multiplexer, and `list` reports a Window as open when any Multiplexer has one.
+One part of this model is decided (see `docs/adr/`) but not yet implemented: honoring a Layout's direction (direction is validated at load but not yet applied). `create` and `resume` select between tmux and herdr per ADR-0002, and both Multiplexers apply the Layout (Pane splits, run and prime commands, focus) when opening a Window. `remove` and `list` are Multiplexer-agnostic: removing a Task closes its Windows in every Multiplexer, and `list` reports a Window as open when any Multiplexer has one.

@@ -97,7 +97,7 @@ func TestBuildChainedCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			run, prime := NewTmux().buildChainedCommand(tt.commands)
+			run, prime := buildChainedCommand(tt.commands)
 			if run != tt.wantRun {
 				t.Errorf("run: got %q, want %q", run, tt.wantRun)
 			}
