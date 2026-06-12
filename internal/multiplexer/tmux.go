@@ -31,7 +31,14 @@ func (t *Tmux) OpenWindow(name, dir string, layout config.Layout) error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create tmux window: %s", strings.TrimSpace(string(out)))
 	}
-	return t.setupPanes(name, dir, layout)
+	if err := t.setupPanes(name, dir, layout); err != nil {
+		// Kill the half-assembled Window so a failed split does not strand
+		// a detached Window. Best effort: the setup error is the one worth
+		// reporting.
+		t.KillWindow(name)
+		return err
+	}
+	return nil
 }
 
 func (t *Tmux) FocusWindow(name string) error {

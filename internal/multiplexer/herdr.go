@@ -46,6 +46,12 @@ func (h *Herdr) OpenWindow(name, dir string, layout config.Layout) error {
 	// The tab is created without focus and focused only after setup, so the
 	// user never watches the Layout assemble.
 	if err := h.setupPanes(created.RootPane.PaneID, dir, layout); err != nil {
+		// Close the half-assembled tab so a setup failure does not strand
+		// an unfocused tab the user has to hunt down (wktr remove cannot
+		// close herdr tabs yet). Best effort: the setup error is the one
+		// worth reporting. A focus failure below leaves the tab in place,
+		// since by then it is fully built and usable.
+		_, _ = h.command("tab", "close", created.Tab.TabID)
 		return err
 	}
 	return h.focusTab(created.Tab.TabID)
@@ -231,6 +237,11 @@ func (h *Herdr) findTab(name string) (*herdrTab, error) {
 // session, so each ratio is Pane i-1's percentage over the percentages of
 // Panes i-1 through n. When that remainder is zero (every remaining Pane
 // normalized to 0%), the split falls back to dividing the region evenly.
+//
+// Degenerate ratios are not guarded because herdr clamps them itself
+// (verified live: 0.0, 1.0, and 1.5 all split successfully and clamp to the
+// 0.1..0.9 range), so the 1.0 a zero-percent tail produces yields a thin
+// bottom pane rather than a failed split.
 func splitRatios(panes []config.Pane) []float64 {
 	percents := normalizePercentages(panes)
 	ratios := make([]float64, 0, len(panes)-1)
@@ -317,6 +328,12 @@ func parseTabCreated(result []byte) (herdrTabCreated, error) {
 	}
 	if created.Tab.TabID == "" {
 		return herdrTabCreated{}, fmt.Errorf("herdr tab creation output did not include a tab ID")
+	}
+	// The root pane ID seeds the Layout setup (it is the target of the
+	// first split), so a payload without one is rejected here rather than
+	// surfacing as an opaque split error later.
+	if created.RootPane.PaneID == "" {
+		return herdrTabCreated{}, fmt.Errorf("herdr tab creation output did not include a root pane ID")
 	}
 	return created, nil
 }

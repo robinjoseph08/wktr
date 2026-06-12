@@ -44,12 +44,16 @@ func normalizePercentages(panes []config.Pane) []int {
 
 // buildChainedCommand collapses a Pane's command list into a single run
 // command (chained with &&) and at most one prime command left typed but not
-// executed.
+// executed. Blank values are dropped so a stray empty entry cannot produce a
+// malformed chain (a leading or trailing && is a shell syntax error).
 func buildChainedCommand(commands []config.Command) (string, string) {
 	var runCmds []string
 	var primeCmd string
 
 	for _, c := range commands {
+		if strings.TrimSpace(c.Value) == "" {
+			continue
+		}
 		run := true
 		if c.Run != nil {
 			run = *c.Run

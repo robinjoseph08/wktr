@@ -187,10 +187,11 @@ func TestHerdrOpenWindowFocusesRootPaneWithoutExplicitFocus(t *testing.T) {
 }
 
 // TestHerdrOpenWindowSurfacesLayoutErrors covers the failure path of each
-// Layout setup step: the error envelope's message surfaces and setup halts
-// before the tab is focused. The pane-not-found fixture was recorded from a
-// failing pane run; it stands in for every pane command's error envelope
-// since only the envelope shape matters here.
+// Layout setup step: the error envelope's message surfaces, the
+// half-assembled tab is closed, and setup halts before the tab is focused.
+// The pane-not-found fixture was recorded from a failing pane run; it stands
+// in for every pane command's error envelope since only the envelope shape
+// matters here.
 func TestHerdrOpenWindowSurfacesLayoutErrors(t *testing.T) {
 	twoPanes := config.Layout{Direction: "vertical", Panes: []config.Pane{
 		{Command: "npm run dev"},
@@ -212,6 +213,7 @@ func TestHerdrOpenWindowSurfacesLayoutErrors(t *testing.T) {
 			cli := &fakeHerdrCLI{
 				outputs: map[string][]byte{
 					"tab create": fixture(t, "herdr_tab_created.json"),
+					"tab close":  fixture(t, "herdr_tab_closed.json"),
 					"tab focus":  fixture(t, "herdr_tab_focused.json"),
 					"pane focus": fixture(t, "herdr_pane_focused.json"),
 				},
@@ -231,12 +233,56 @@ func TestHerdrOpenWindowSurfacesLayoutErrors(t *testing.T) {
 			if !strings.Contains(err.Error(), "herdr "+tt.fail) {
 				t.Errorf("expected the failing subcommand to be named, got %v", err)
 			}
+			closed := false
 			for _, call := range cli.calls {
 				if call[0] == "tab" && call[1] == "focus" {
 					t.Errorf("expected no tab focus after a failed %s, got %v", tt.fail, cli.calls)
 				}
+				if reflect.DeepEqual(call, []string{"tab", "close", "w653faa4eef9f71:2"}) {
+					closed = true
+				}
+			}
+			if !closed {
+				t.Errorf("expected the half-assembled tab to be closed after a failed %s, got %v", tt.fail, cli.calls)
 			}
 		})
+	}
+}
+
+// TestHerdrOpenWindowFocusesDeeperFocusPane pins the focus reference for a
+// focus Pane below index 1: the Pane at index i is focused as the down
+// neighbor of Pane i-1, so focusing index 2 must reference the second Pane's
+// ID (returned by the first split), not the root Pane's.
+func TestHerdrOpenWindowFocusesDeeperFocusPane(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_focused.json"),
+			"pane focus": fixture(t, "herdr_pane_focused.json"),
+		},
+		queues: map[string][][]byte{
+			"pane split": {
+				fixture(t, "herdr_pane_split.json"),
+				fixture(t, "herdr_pane_split_second.json"),
+			},
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	layout := config.Layout{Direction: "vertical", Panes: []config.Pane{{}, {}, {Focus: true}}}
+	if err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+
+	want := []string{"pane", "focus", "--direction", "down", "--pane", "w65403395f73d84-3"}
+	var focusCalls [][]string
+	for _, call := range cli.calls {
+		if call[0] == "pane" && call[1] == "focus" {
+			focusCalls = append(focusCalls, call)
+		}
+	}
+	if len(focusCalls) != 1 || !reflect.DeepEqual(focusCalls[0], want) {
+		t.Errorf("pane focus calls: got %v, want exactly one %v", focusCalls, want)
 	}
 }
 
@@ -521,6 +567,13 @@ func TestHerdrSplitRatios(t *testing.T) {
 			// percentages left to divide and falls back to an even split.
 			want: []float64{1.0, 0.5},
 		},
+		{
+			name:  "deeper zero-percent tail divides evenly among what remains",
+			panes: []config.Pane{{Size: 100}, {}, {}, {}},
+			// Each fallback split divides the leftover region evenly among
+			// the Panes that remain: three ways, then two.
+			want: []float64{1.0, 1.0 / 3.0, 0.5},
+		},
 	}
 
 	for _, tt := range tests {
@@ -569,6 +622,13 @@ func TestHerdrTabCreationErrorsWithoutTabID(t *testing.T) {
 	_, err := parseTabCreated([]byte(`{"tab":{"label":"my-task"}}`))
 	if err == nil || !strings.Contains(err.Error(), "tab ID") {
 		t.Fatalf("expected missing tab ID error, got %v", err)
+	}
+}
+
+func TestHerdrTabCreationErrorsWithoutRootPaneID(t *testing.T) {
+	_, err := parseTabCreated([]byte(`{"tab":{"tab_id":"w653faa4eef9f71:2","label":"my-task"}}`))
+	if err == nil || !strings.Contains(err.Error(), "root pane ID") {
+		t.Fatalf("expected missing root pane ID error, got %v", err)
 	}
 }
 
