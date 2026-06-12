@@ -558,6 +558,38 @@ func TestRemoveKillsCurrentMultiplexerWindowLast(t *testing.T) {
 	}
 }
 
+func TestRemoveKillsNestedMultiplexerWindowsInReverseOrder(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+
+	// Nested Multiplexers both detect as current because one inherits the
+	// other's env signal. wktr cannot tell which one truly hosts it, but
+	// killing a Task's herdr tab never reaches a process inside a tmux pane,
+	// so the herdr kill (last in All() order) must run first.
+	var killLog []string
+	tmuxMux := newFakeMultiplexer()
+	tmuxMux.detect = true
+	tmuxMux.label = "tmux"
+	tmuxMux.killLog = &killLog
+	herdrMux := newFakeMultiplexer()
+	herdrMux.detect = true
+	herdrMux.label = "herdr"
+	herdrMux.killLog = &killLog
+
+	if err := Create(selectorFor(tmuxMux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	herdrMux.windows["my-task"] = true
+
+	err := Remove([]multiplexer.Multiplexer{tmuxMux, herdrMux}, RemoveOpts{Name: "my-task", Force: true, Dir: repo})
+	if err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	if !reflect.DeepEqual(killLog, []string{"herdr", "tmux"}) {
+		t.Errorf("kill order: got %v, want herdr killed before tmux when both are current", killLog)
+	}
+}
+
 func TestListReportsWindowsFromMultiplexer(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()

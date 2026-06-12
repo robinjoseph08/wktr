@@ -283,8 +283,14 @@ func Remove(muxes []multiplexer.Multiplexer, opts RemoveOpts) error {
 
 	fmt.Printf("Task %q removed\n", name)
 
-	for _, mux := range current {
-		mux.KillWindow(name)
+	// More than one current Multiplexer means nesting (one inherits the
+	// other's env signal), where wktr cannot tell which one truly hosts it.
+	// Kill in reverse All() order: herdr's signal leaks into a tmux server
+	// started inside it, and killing a Task's herdr tab never reaches a
+	// process inside a tmux pane, so the herdr kill is the safer one to run
+	// first.
+	for i := len(current) - 1; i >= 0; i-- {
+		current[i].KillWindow(name)
 	}
 
 	return nil
