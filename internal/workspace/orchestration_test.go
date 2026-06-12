@@ -25,7 +25,11 @@ type openedWindow struct {
 // so orchestration tests can assert on what the workspace layer asked for.
 // openErr and focusErr, when set, are returned from the corresponding calls;
 // the call is still recorded, but a failed OpenWindow does not register the
-// Window as existing.
+// Window as existing. Detect reports detect, which defaults to false so tests
+// represent the common case of a backend wktr is not inside; a Detect-gated
+// Remove or List would therefore skip these fakes and fail the fan-out tests.
+// killLog, when set, records this fake's label on every kill so tests can
+// assert on kill order across backends.
 type fakeMultiplexer struct {
 	windows  map[string]bool
 	opened   []openedWindow
@@ -33,6 +37,9 @@ type fakeMultiplexer struct {
 	killed   []string
 	openErr  error
 	focusErr error
+	detect   bool
+	label    string
+	killLog  *[]string
 }
 
 func newFakeMultiplexer() *fakeMultiplexer {
@@ -40,7 +47,7 @@ func newFakeMultiplexer() *fakeMultiplexer {
 }
 
 func (f *fakeMultiplexer) Detect() bool {
-	return true
+	return f.detect
 }
 
 func (f *fakeMultiplexer) OpenWindow(name, dir string, layout config.Layout) error {
@@ -70,6 +77,9 @@ func (f *fakeMultiplexer) WindowExists(name string) bool {
 
 func (f *fakeMultiplexer) KillWindow(name string) {
 	f.killed = append(f.killed, name)
+	if f.killLog != nil {
+		*f.killLog = append(*f.killLog, f.label)
+	}
 	delete(f.windows, name)
 }
 
@@ -369,6 +379,73 @@ func TestResumeOpensWindowWhenNoneExists(t *testing.T) {
 	}
 }
 
+func TestResumeOpensFreshWindowWhenTaskOpenOnlyInOtherMultiplexer(t *testing.T) {
+	repo, worktreeBase := initOrchestrationRepo(t)
+	current := newFakeMultiplexer()
+	other := newFakeMultiplexer()
+
+	if err := Create(selectorFor(other), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// The Task's Window lives only in the other Multiplexer. Resume acts on
+	// the current one alone (ADR-0002), so it opens a fresh Window here
+	// instead of trying to focus the Window over there.
+	if err := Resume(selectorFor(current), ResumeOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+
+	if len(current.opened) != 1 {
+		t.Fatalf("expected 1 window opened in current multiplexer, got %d", len(current.opened))
+	}
+	got := current.opened[0]
+	wantDir := filepath.Join(worktreeBase, "testorg", "testrepo", "my-task")
+	if got.name != "my-task" || got.dir != wantDir {
+		t.Errorf("got window %q at %q, want %q at %q", got.name, got.dir, "my-task", wantDir)
+	}
+	if !reflect.DeepEqual(got.layout, config.DefaultLayout()) {
+		t.Errorf("window layout: got %+v, want default layout", got.layout)
+	}
+	if len(current.focused) != 0 {
+		t.Errorf("expected no window focused in current multiplexer, got %v", current.focused)
+	}
+
+	// The other Multiplexer's Window keeps running untouched.
+	if !other.windows["my-task"] {
+		t.Error("expected the other multiplexer to keep its window")
+	}
+	if len(other.opened) != 1 || len(other.focused) != 0 || len(other.killed) != 0 {
+		t.Errorf("expected the other multiplexer untouched by resume, got opened %d focused %v killed %v",
+			len(other.opened), other.focused, other.killed)
+	}
+}
+
+func TestResumeFocusesCurrentWindowWhenTaskOpenInBothMultiplexers(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+	current := newFakeMultiplexer()
+	other := newFakeMultiplexer()
+
+	if err := Create(selectorFor(current), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	other.windows["my-task"] = true
+
+	if err := Resume(selectorFor(current), ResumeOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+
+	if !reflect.DeepEqual(current.focused, []string{"my-task"}) {
+		t.Errorf("expected window %q focused in current multiplexer, got %v", "my-task", current.focused)
+	}
+	if len(current.opened) != 1 {
+		t.Errorf("expected no additional window opened, got %d total", len(current.opened))
+	}
+	if len(other.focused) != 0 || len(other.opened) != 0 || len(other.killed) != 0 {
+		t.Errorf("expected the other multiplexer untouched by resume, got opened %d focused %v killed %v",
+			len(other.opened), other.focused, other.killed)
+	}
+}
+
 func TestRemoveKillsWindowAndDeletesWorktree(t *testing.T) {
 	repo, worktreeBase := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
@@ -377,7 +454,7 @@ func TestRemoveKillsWindowAndDeletesWorktree(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := Remove(mux, RemoveOpts{Name: "my-task", Force: true, Dir: repo}); err != nil {
+	if err := Remove([]multiplexer.Multiplexer{mux}, RemoveOpts{Name: "my-task", Force: true, Dir: repo}); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
@@ -393,6 +470,126 @@ func TestRemoveKillsWindowAndDeletesWorktree(t *testing.T) {
 	}
 }
 
+func TestRemoveKillsWindowInEveryMultiplexer(t *testing.T) {
+	tests := []struct {
+		name    string
+		inTmux  bool
+		inHerdr bool
+	}{
+		{"window in neither multiplexer", false, false},
+		{"window in tmux only", true, false},
+		{"window in herdr only", false, true},
+		{"window in both multiplexers", true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, _ := initOrchestrationRepo(t)
+			// Remove never resolves the multiplexer setting (ADR-0002), so it
+			// must succeed outside both Multiplexers and never hit selection
+			// errors. The env is cleared and both fakes report not being the
+			// current Multiplexer, so a detection-gated kill would fail here.
+			t.Setenv("TMUX", "")
+			t.Setenv("HERDR_ENV", "")
+
+			tmuxMux := newFakeMultiplexer()
+			herdrMux := newFakeMultiplexer()
+			if err := Create(selectorFor(tmuxMux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			delete(tmuxMux.windows, "my-task")
+			if tt.inTmux {
+				tmuxMux.windows["my-task"] = true
+			}
+			if tt.inHerdr {
+				herdrMux.windows["my-task"] = true
+			}
+
+			err := Remove([]multiplexer.Multiplexer{tmuxMux, herdrMux}, RemoveOpts{Name: "my-task", Force: true, Dir: repo})
+			if err != nil {
+				t.Fatalf("Remove: %v", err)
+			}
+
+			// The kill fans out best-effort: every backend is asked to close
+			// the Window whether or not it has one, and an absent Window is
+			// silently ignored.
+			if !reflect.DeepEqual(tmuxMux.killed, []string{"my-task"}) {
+				t.Errorf("tmux: expected window %q killed, got %v", "my-task", tmuxMux.killed)
+			}
+			if !reflect.DeepEqual(herdrMux.killed, []string{"my-task"}) {
+				t.Errorf("herdr: expected window %q killed, got %v", "my-task", herdrMux.killed)
+			}
+			if tmuxMux.windows["my-task"] || herdrMux.windows["my-task"] {
+				t.Error("expected no multiplexer to retain the window")
+			}
+		})
+	}
+}
+
+func TestRemoveKillsCurrentMultiplexerWindowLast(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+
+	// Killing the current Multiplexer's Window can take wktr down with it
+	// (when wktr runs inside the Task's own Window), so the other backend's
+	// Window must already be gone by then or it would be orphaned.
+	var killLog []string
+	current := newFakeMultiplexer()
+	current.detect = true
+	current.label = "current"
+	current.killLog = &killLog
+	other := newFakeMultiplexer()
+	other.label = "other"
+	other.killLog = &killLog
+
+	if err := Create(selectorFor(current), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	other.windows["my-task"] = true
+
+	// The current Multiplexer comes first in muxes, mirroring the order
+	// multiplexer.All() yields when wktr runs inside tmux.
+	err := Remove([]multiplexer.Multiplexer{current, other}, RemoveOpts{Name: "my-task", Force: true, Dir: repo})
+	if err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	if !reflect.DeepEqual(killLog, []string{"other", "current"}) {
+		t.Errorf("kill order: got %v, want the other multiplexer killed before the current one", killLog)
+	}
+}
+
+func TestRemoveKillsNestedMultiplexerWindowsInReverseOrder(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+
+	// Nested Multiplexers both detect as current because one inherits the
+	// other's env signal. wktr cannot tell which one truly hosts it, but
+	// killing a Task's herdr tab never reaches a process inside a tmux pane,
+	// so the herdr kill (last in All() order) must run first.
+	var killLog []string
+	tmuxMux := newFakeMultiplexer()
+	tmuxMux.detect = true
+	tmuxMux.label = "tmux"
+	tmuxMux.killLog = &killLog
+	herdrMux := newFakeMultiplexer()
+	herdrMux.detect = true
+	herdrMux.label = "herdr"
+	herdrMux.killLog = &killLog
+
+	if err := Create(selectorFor(tmuxMux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	herdrMux.windows["my-task"] = true
+
+	err := Remove([]multiplexer.Multiplexer{tmuxMux, herdrMux}, RemoveOpts{Name: "my-task", Force: true, Dir: repo})
+	if err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	if !reflect.DeepEqual(killLog, []string{"herdr", "tmux"}) {
+		t.Errorf("kill order: got %v, want herdr killed before tmux when both are current", killLog)
+	}
+}
+
 func TestListReportsWindowsFromMultiplexer(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
@@ -405,7 +602,7 @@ func TestListReportsWindowsFromMultiplexer(t *testing.T) {
 	}
 	delete(mux.windows, "task-closed")
 
-	infos, err := List(mux, ListOpts{Dir: repo})
+	infos, err := List([]multiplexer.Multiplexer{mux}, ListOpts{Dir: repo})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -420,9 +617,61 @@ func TestListReportsWindowsFromMultiplexer(t *testing.T) {
 	}
 }
 
+func TestListReportsWindowOpenInAnyMultiplexer(t *testing.T) {
+	tests := []struct {
+		name    string
+		inTmux  bool
+		inHerdr bool
+		want    bool
+	}{
+		{"window in neither multiplexer", false, false, false},
+		{"window in tmux only", true, false, true},
+		{"window in herdr only", false, true, true},
+		{"window in both multiplexers", true, true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, _ := initOrchestrationRepo(t)
+			// List never resolves the multiplexer setting (ADR-0002), so it
+			// must succeed outside both Multiplexers and never hit selection
+			// errors. The env is cleared and both fakes report not being the
+			// current Multiplexer, so a detection-gated probe would fail here.
+			t.Setenv("TMUX", "")
+			t.Setenv("HERDR_ENV", "")
+
+			tmuxMux := newFakeMultiplexer()
+			herdrMux := newFakeMultiplexer()
+			if err := Create(selectorFor(tmuxMux), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			delete(tmuxMux.windows, "my-task")
+			if tt.inTmux {
+				tmuxMux.windows["my-task"] = true
+			}
+			if tt.inHerdr {
+				herdrMux.windows["my-task"] = true
+			}
+
+			infos, err := List([]multiplexer.Multiplexer{tmuxMux, herdrMux}, ListOpts{Dir: repo})
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+
+			if len(infos) != 1 {
+				t.Fatalf("expected 1 worktree, got %d", len(infos))
+			}
+			if infos[0].HasWindow != tt.want {
+				t.Errorf("HasWindow: got %v, want %v", infos[0].HasWindow, tt.want)
+			}
+		})
+	}
+}
+
 func TestListAllReportsWindowsFromMultiplexer(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
+	other := newFakeMultiplexer()
 
 	if err := Create(selectorFor(mux), CreateOpts{Name: "task-open", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -430,9 +679,13 @@ func TestListAllReportsWindowsFromMultiplexer(t *testing.T) {
 	if err := Create(selectorFor(mux), CreateOpts{Name: "task-closed", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	// The only open Window lives in the second backend, so list --all must
+	// fan out over every backend (ADR-0002) to report it.
+	delete(mux.windows, "task-open")
 	delete(mux.windows, "task-closed")
+	other.windows["task-open"] = true
 
-	infos, err := List(mux, ListOpts{All: true, Dir: repo})
+	infos, err := List([]multiplexer.Multiplexer{mux, other}, ListOpts{All: true, Dir: repo})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

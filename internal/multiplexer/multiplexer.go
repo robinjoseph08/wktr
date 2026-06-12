@@ -5,6 +5,15 @@ package multiplexer
 
 import "github.com/robinjoseph08/wktr/internal/config"
 
+// All returns every backend, for the Multiplexer-agnostic commands
+// (ADR-0002). Tasks outlive Multiplexer sessions, so remove best-effort kills
+// a Task's Window in every backend and list reports a Window as open if any
+// backend has one. All never consults detection or the multiplexer setting,
+// so those commands keep working outside any Multiplexer.
+func All() []Multiplexer {
+	return []Multiplexer{NewTmux(), NewHerdr()}
+}
+
 // Multiplexer hosts Windows for Tasks. All backend-specific complexity
 // (target addressing, size math, command sending) lives inside the backend;
 // callers address Windows only by Task name.

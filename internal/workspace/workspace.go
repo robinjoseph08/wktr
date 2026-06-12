@@ -192,7 +192,13 @@ func Resume(selectMux MultiplexerSelector, opts ResumeOpts) error {
 	return nil
 }
 
-func Remove(mux multiplexer.Multiplexer, opts RemoveOpts) error {
+// Remove deletes a Task's Worktree and branch and best-effort kills its
+// Window in every Multiplexer. Tasks outlive Multiplexer sessions (ADR-0002),
+// so muxes is every backend rather than a selected one, and a missing Window
+// or unreachable Multiplexer is silently ignored. The current Multiplexer's
+// Window is killed last, after all other cleanup, because that kill can take
+// wktr down with it when wktr runs inside the Task's own Window.
+func Remove(muxes []multiplexer.Multiplexer, opts RemoveOpts) error {
 	dir := opts.Dir
 	if dir == "" {
 		var err error
@@ -260,15 +266,41 @@ func Remove(mux multiplexer.Multiplexer, opts RemoveOpts) error {
 		return err
 	}
 
-	mux.KillWindow(name)
+	// Kill the Window in every Multiplexer we are not inside first. Killing
+	// the current Multiplexer's Window can take wktr down with it (when wktr
+	// runs inside the Task's own Window), so that kill happens last, once
+	// every other backend is cleaned up and the remaining work is done.
+	var current []multiplexer.Multiplexer
+	for _, mux := range muxes {
+		if mux.Detect() {
+			current = append(current, mux)
+			continue
+		}
+		mux.KillWindow(name)
+	}
 
 	cleanEmptyParents(worktreeDir, globalCfg.WorktreeDirectory)
 
 	fmt.Printf("Task %q removed\n", name)
+
+	// More than one current Multiplexer means nesting (one inherits the
+	// other's env signal), where wktr cannot tell which one truly hosts it.
+	// Kill in reverse All() order: herdr's signal leaks into a tmux server
+	// started inside it, and killing a Task's herdr tab never reaches a
+	// process inside a tmux pane, so the herdr kill is the safer one to run
+	// first.
+	for i := len(current) - 1; i >= 0; i-- {
+		current[i].KillWindow(name)
+	}
+
 	return nil
 }
 
-func List(mux multiplexer.Multiplexer, opts ListOpts) ([]WorktreeInfo, error) {
+// List reports the current repo's Tasks' Worktrees, or every repo's with
+// opts.All, along with whether each Task has a Window open. Tasks outlive
+// Multiplexer sessions (ADR-0002), so muxes is every backend rather than a
+// selected one, and a Window counts as open when any backend has one.
+func List(muxes []multiplexer.Multiplexer, opts ListOpts) ([]WorktreeInfo, error) {
 	dir := opts.Dir
 	if dir == "" {
 		var err error
@@ -286,7 +318,7 @@ func List(mux multiplexer.Multiplexer, opts ListOpts) ([]WorktreeInfo, error) {
 	base := globalCfg.WorktreeDirectory
 
 	if opts.All {
-		return listAll(mux, base, globalCfg.BranchPrefix)
+		return listAll(muxes, base, globalCfg.BranchPrefix)
 	}
 
 	mainWorktree, err := git.GetMainWorktree(dir)
@@ -299,10 +331,20 @@ func List(mux multiplexer.Multiplexer, opts ListOpts) ([]WorktreeInfo, error) {
 		return nil, err
 	}
 
-	return listRepo(mux, base, orgRepo, globalCfg.BranchPrefix)
+	return listRepo(muxes, base, orgRepo, globalCfg.BranchPrefix)
 }
 
-func listRepo(mux multiplexer.Multiplexer, base string, orgRepo git.OrgRepo, prefix string) ([]WorktreeInfo, error) {
+// windowExistsAny reports whether any backend has a Window named name.
+func windowExistsAny(muxes []multiplexer.Multiplexer, name string) bool {
+	for _, mux := range muxes {
+		if mux.WindowExists(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func listRepo(muxes []multiplexer.Multiplexer, base string, orgRepo git.OrgRepo, prefix string) ([]WorktreeInfo, error) {
 	repoDir := filepath.Join(base, orgRepo.Org, orgRepo.Repo)
 	entries, err := os.ReadDir(repoDir)
 	if err != nil {
@@ -322,14 +364,14 @@ func listRepo(mux multiplexer.Multiplexer, base string, orgRepo git.OrgRepo, pre
 			Name:      name,
 			Branch:    prefix + name,
 			Dir:       filepath.Join(repoDir, name),
-			HasWindow: mux.WindowExists(name),
+			HasWindow: windowExistsAny(muxes, name),
 			OrgRepo:   orgRepo.String(),
 		})
 	}
 	return infos, nil
 }
 
-func listAll(mux multiplexer.Multiplexer, base string, prefix string) ([]WorktreeInfo, error) {
+func listAll(muxes []multiplexer.Multiplexer, base string, prefix string) ([]WorktreeInfo, error) {
 	var infos []WorktreeInfo
 
 	orgs, err := os.ReadDir(base)
@@ -353,7 +395,7 @@ func listAll(mux multiplexer.Multiplexer, base string, prefix string) ([]Worktre
 				continue
 			}
 			orgRepo := git.OrgRepo{Org: org.Name(), Repo: repo.Name()}
-			repoInfos, err := listRepo(mux, base, orgRepo, prefix)
+			repoInfos, err := listRepo(muxes, base, orgRepo, prefix)
 			if err != nil {
 				continue
 			}
