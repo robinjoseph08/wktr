@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-var remotePattern = regexp.MustCompile(`[/:]([^/]+)/([^/.]+?)(?:\.git)?$`)
+var remotePattern = regexp.MustCompile(`[/:]([^/]+)/([^/]+?)(?:\.git)?/?$`)
 
 type OrgRepo struct {
 	Org  string
@@ -24,6 +24,14 @@ func ParseRemoteURL(url string) (OrgRepo, error) {
 	matches := remotePattern.FindStringSubmatch(url)
 	if matches == nil {
 		return OrgRepo{}, fmt.Errorf("cannot parse org/repo from remote URL: %s", url)
+	}
+	// Reject segments that would corrupt the worktree directory layout:
+	// "." collapses a level, ".." traverses out of it, and ".git" makes a
+	// parent directory look like a git repository.
+	for _, segment := range matches[1:3] {
+		if segment == "." || segment == ".." || strings.EqualFold(segment, ".git") {
+			return OrgRepo{}, fmt.Errorf("cannot parse org/repo from remote URL: %s", url)
+		}
 	}
 	return OrgRepo{Org: matches[1], Repo: matches[2]}, nil
 }
