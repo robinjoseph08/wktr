@@ -192,10 +192,12 @@ func Resume(selectMux MultiplexerSelector, opts ResumeOpts) error {
 	return nil
 }
 
-// Remove deletes a Task's worktree and branch and best-effort kills its
+// Remove deletes a Task's Worktree and branch and best-effort kills its
 // Window in every Multiplexer. Tasks outlive Multiplexer sessions (ADR-0002),
 // so muxes is every backend rather than a selected one, and a missing Window
-// or unreachable Multiplexer is silently ignored.
+// or unreachable Multiplexer is silently ignored. The current Multiplexer's
+// Window is killed last, after all other cleanup, because that kill can take
+// wktr down with it when wktr runs inside the Task's own Window.
 func Remove(muxes []multiplexer.Multiplexer, opts RemoveOpts) error {
 	dir := opts.Dir
 	if dir == "" {
@@ -264,20 +266,34 @@ func Remove(muxes []multiplexer.Multiplexer, opts RemoveOpts) error {
 		return err
 	}
 
+	// Kill the Window in every Multiplexer we are not inside first. Killing
+	// the current Multiplexer's Window can take wktr down with it (when wktr
+	// runs inside the Task's own Window), so that kill happens last, once
+	// every other backend is cleaned up and the remaining work is done.
+	var current []multiplexer.Multiplexer
 	for _, mux := range muxes {
+		if mux.Detect() {
+			current = append(current, mux)
+			continue
+		}
 		mux.KillWindow(name)
 	}
 
 	cleanEmptyParents(worktreeDir, globalCfg.WorktreeDirectory)
 
 	fmt.Printf("Task %q removed\n", name)
+
+	for _, mux := range current {
+		mux.KillWindow(name)
+	}
+
 	return nil
 }
 
-// List reports every Task's worktree along with whether it has a Window open.
-// Tasks outlive Multiplexer sessions (ADR-0002), so muxes is every backend
-// rather than a selected one, and a Window counts as open when any backend
-// has one.
+// List reports the current repo's Tasks' Worktrees, or every repo's with
+// opts.All, along with whether each Task has a Window open. Tasks outlive
+// Multiplexer sessions (ADR-0002), so muxes is every backend rather than a
+// selected one, and a Window counts as open when any backend has one.
 func List(muxes []multiplexer.Multiplexer, opts ListOpts) ([]WorktreeInfo, error) {
 	dir := opts.Dir
 	if dir == "" {

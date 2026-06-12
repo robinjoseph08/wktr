@@ -25,7 +25,11 @@ type openedWindow struct {
 // so orchestration tests can assert on what the workspace layer asked for.
 // openErr and focusErr, when set, are returned from the corresponding calls;
 // the call is still recorded, but a failed OpenWindow does not register the
-// Window as existing.
+// Window as existing. Detect reports detect, which defaults to false so tests
+// represent the common case of a backend wktr is not inside; a Detect-gated
+// Remove or List would therefore skip these fakes and fail the fan-out tests.
+// killLog, when set, records this fake's label on every kill so tests can
+// assert on kill order across backends.
 type fakeMultiplexer struct {
 	windows  map[string]bool
 	opened   []openedWindow
@@ -33,6 +37,9 @@ type fakeMultiplexer struct {
 	killed   []string
 	openErr  error
 	focusErr error
+	detect   bool
+	label    string
+	killLog  *[]string
 }
 
 func newFakeMultiplexer() *fakeMultiplexer {
@@ -40,7 +47,7 @@ func newFakeMultiplexer() *fakeMultiplexer {
 }
 
 func (f *fakeMultiplexer) Detect() bool {
-	return true
+	return f.detect
 }
 
 func (f *fakeMultiplexer) OpenWindow(name, dir string, layout config.Layout) error {
@@ -70,6 +77,9 @@ func (f *fakeMultiplexer) WindowExists(name string) bool {
 
 func (f *fakeMultiplexer) KillWindow(name string) {
 	f.killed = append(f.killed, name)
+	if f.killLog != nil {
+		*f.killLog = append(*f.killLog, f.label)
+	}
 	delete(f.windows, name)
 }
 
@@ -477,7 +487,8 @@ func TestRemoveKillsWindowInEveryMultiplexer(t *testing.T) {
 			repo, _ := initOrchestrationRepo(t)
 			// Remove never resolves the multiplexer setting (ADR-0002), so it
 			// must succeed outside both Multiplexers and never hit selection
-			// errors.
+			// errors. The env is cleared and both fakes report not being the
+			// current Multiplexer, so a detection-gated kill would fail here.
 			t.Setenv("TMUX", "")
 			t.Setenv("HERDR_ENV", "")
 
@@ -512,6 +523,38 @@ func TestRemoveKillsWindowInEveryMultiplexer(t *testing.T) {
 				t.Error("expected no multiplexer to retain the window")
 			}
 		})
+	}
+}
+
+func TestRemoveKillsCurrentMultiplexerWindowLast(t *testing.T) {
+	repo, _ := initOrchestrationRepo(t)
+
+	// Killing the current Multiplexer's Window can take wktr down with it
+	// (when wktr runs inside the Task's own Window), so the other backend's
+	// Window must already be gone by then or it would be orphaned.
+	var killLog []string
+	current := newFakeMultiplexer()
+	current.detect = true
+	current.label = "current"
+	current.killLog = &killLog
+	other := newFakeMultiplexer()
+	other.label = "other"
+	other.killLog = &killLog
+
+	if err := Create(selectorFor(current), CreateOpts{Name: "my-task", Dir: repo}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	other.windows["my-task"] = true
+
+	// The current Multiplexer comes first in muxes, mirroring the order
+	// multiplexer.All() yields when wktr runs inside tmux.
+	err := Remove([]multiplexer.Multiplexer{current, other}, RemoveOpts{Name: "my-task", Force: true, Dir: repo})
+	if err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	if !reflect.DeepEqual(killLog, []string{"other", "current"}) {
+		t.Errorf("kill order: got %v, want the other multiplexer killed before the current one", killLog)
 	}
 }
 
@@ -560,7 +603,8 @@ func TestListReportsWindowOpenInAnyMultiplexer(t *testing.T) {
 			repo, _ := initOrchestrationRepo(t)
 			// List never resolves the multiplexer setting (ADR-0002), so it
 			// must succeed outside both Multiplexers and never hit selection
-			// errors.
+			// errors. The env is cleared and both fakes report not being the
+			// current Multiplexer, so a detection-gated probe would fail here.
 			t.Setenv("TMUX", "")
 			t.Setenv("HERDR_ENV", "")
 
@@ -595,6 +639,7 @@ func TestListReportsWindowOpenInAnyMultiplexer(t *testing.T) {
 func TestListAllReportsWindowsFromMultiplexer(t *testing.T) {
 	repo, _ := initOrchestrationRepo(t)
 	mux := newFakeMultiplexer()
+	other := newFakeMultiplexer()
 
 	if err := Create(selectorFor(mux), CreateOpts{Name: "task-open", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -602,9 +647,13 @@ func TestListAllReportsWindowsFromMultiplexer(t *testing.T) {
 	if err := Create(selectorFor(mux), CreateOpts{Name: "task-closed", Dir: repo}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	// The only open Window lives in the second backend, so list --all must
+	// fan out over every backend (ADR-0002) to report it.
+	delete(mux.windows, "task-open")
 	delete(mux.windows, "task-closed")
+	other.windows["task-open"] = true
 
-	infos, err := List([]multiplexer.Multiplexer{mux}, ListOpts{All: true, Dir: repo})
+	infos, err := List([]multiplexer.Multiplexer{mux, other}, ListOpts{All: true, Dir: repo})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
