@@ -331,6 +331,35 @@ func TestHerdrOpenWindowSurfacesFocusError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "tab bogus:99 not found") {
 		t.Fatalf("expected herdr focus error to be surfaced, got %v", err)
 	}
+	// A focus failure happens after setup succeeded, so the fully built tab
+	// is left in place rather than closed like a half-assembled one.
+	for _, call := range cli.calls {
+		if call[0] == "tab" && call[1] == "close" {
+			t.Errorf("expected the fully built tab to be left in place on focus failure, got %v", cli.calls)
+		}
+	}
+}
+
+// TestHerdrOpenWindowSkipsBlankCommand pins the blank-drop rule on the
+// single-command path: a whitespace-only command sends nothing to the Pane.
+func TestHerdrOpenWindowSkipsBlankCommand(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_focused.json"),
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	layout := config.Layout{Panes: []config.Pane{{Command: "   "}}}
+	if err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+	for _, call := range cli.calls {
+		if call[0] == "pane" {
+			t.Errorf("expected no pane commands for a blank command, got %v", cli.calls)
+		}
+	}
 }
 
 // TestHerdrCommandErrorPaths covers the envelope-unwrapping fallbacks for

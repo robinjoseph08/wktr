@@ -112,7 +112,9 @@ func (h *Herdr) sendPaneCommands(paneID string, pane config.Pane) error {
 		return nil
 	}
 
-	if pane.Command == "" {
+	// Blank commands are dropped on the single-command path too, matching
+	// buildChainedCommand.
+	if strings.TrimSpace(pane.Command) == "" {
 		return nil
 	}
 

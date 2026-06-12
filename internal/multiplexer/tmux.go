@@ -141,7 +141,9 @@ func (t *Tmux) sendPaneCommands(target string, pane config.Pane) {
 		return
 	}
 
-	if pane.Command == "" {
+	// Blank commands are dropped on the single-command path too, matching
+	// buildChainedCommand.
+	if strings.TrimSpace(pane.Command) == "" {
 		return
 	}
 
