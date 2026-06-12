@@ -76,6 +76,12 @@ func TestParseRemoteURL(t *testing.T) {
 			wantRepo: ".github",
 		},
 		{
+			name:     "uppercase .GIT suffix is not stripped",
+			url:      "https://github.com/org/repo.GIT",
+			wantOrg:  "org",
+			wantRepo: "repo.GIT",
+		},
+		{
 			name:     "trailing slash",
 			url:      "https://github.com/org/repo/",
 			wantOrg:  "org",
