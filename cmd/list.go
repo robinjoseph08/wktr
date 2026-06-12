@@ -15,7 +15,7 @@ var listCmd = &cobra.Command{
 	Short: "List active worktrees",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		infos, err := workspace.List(multiplexer.NewTmux(), workspace.ListOpts{All: listAll})
+		infos, err := workspace.List(multiplexer.All(), workspace.ListOpts{All: listAll})
 		if err != nil {
 			return err
 		}

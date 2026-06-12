@@ -10,7 +10,7 @@ var removeForce bool
 
 var removeCmd = &cobra.Command{
 	Use:   "remove [name]",
-	Short: "Remove a worktree and its tmux window",
+	Short: "Remove a worktree and close its windows in every multiplexer",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		opts := workspace.RemoveOpts{
@@ -19,7 +19,7 @@ var removeCmd = &cobra.Command{
 		if len(args) > 0 {
 			opts.Name = args[0]
 		}
-		return workspace.Remove(multiplexer.NewTmux(), opts)
+		return workspace.Remove(multiplexer.All(), opts)
 	},
 }
 
