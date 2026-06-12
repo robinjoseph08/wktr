@@ -22,9 +22,7 @@ type Multiplexer interface {
 	// Multiplexer.
 	Detect() bool
 	// OpenWindow opens a new Window named name rooted at dir and applies
-	// the Layout: pane splits, run and prime commands, and focus. Not
-	// every backend applies the full Layout yet; the herdr backend
-	// currently opens the single default Pane only (see Herdr).
+	// the Layout: pane splits, run and prime commands, and focus.
 	OpenWindow(name, dir string, layout config.Layout) error
 	// FocusWindow switches to the existing Window named name.
 	FocusWindow(name string) error

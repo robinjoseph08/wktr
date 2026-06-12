@@ -31,7 +31,14 @@ func (t *Tmux) OpenWindow(name, dir string, layout config.Layout) error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create tmux window: %s", strings.TrimSpace(string(out)))
 	}
-	return t.setupPanes(name, dir, layout)
+	if err := t.setupPanes(name, dir, layout); err != nil {
+		// Kill the half-assembled Window so a failed split does not strand
+		// a detached Window. Best effort: the setup error is the one worth
+		// reporting.
+		t.KillWindow(name)
+		return err
+	}
+	return nil
 }
 
 func (t *Tmux) FocusWindow(name string) error {
@@ -101,13 +108,7 @@ func (t *Tmux) setupPanes(windowName string, dir string, layout config.Layout) e
 		t.sendPaneCommands(target, pane)
 	}
 
-	focusIdx := 0
-	for i, pane := range panes {
-		if pane.Focus {
-			focusIdx = i
-			break
-		}
-	}
+	focusIdx := focusIndex(panes)
 
 	_ = exec.Command("tmux", "select-window", "-t", windowName).Run()
 	_ = exec.Command("tmux", "select-pane", "-t", fmt.Sprintf("%s.%d", windowName, focusIdx)).Run()
@@ -130,7 +131,7 @@ func (t *Tmux) windowHeight() int {
 
 func (t *Tmux) sendPaneCommands(target string, pane config.Pane) {
 	if len(pane.Commands) > 0 {
-		run, prime := t.buildChainedCommand(pane.Commands)
+		run, prime := buildChainedCommand(pane.Commands)
 		if run != "" {
 			_ = exec.Command("tmux", "send-keys", "-t", target, run, "Enter").Run()
 		}
@@ -140,7 +141,9 @@ func (t *Tmux) sendPaneCommands(target string, pane config.Pane) {
 		return
 	}
 
-	if pane.Command == "" {
+	// Blank commands are dropped on the single-command path too, matching
+	// buildChainedCommand.
+	if strings.TrimSpace(pane.Command) == "" {
 		return
 	}
 
@@ -156,57 +159,13 @@ func (t *Tmux) sendPaneCommands(target string, pane config.Pane) {
 	}
 }
 
-// buildChainedCommand collapses a Pane's command list into a single run
-// command (chained with &&) and at most one prime command left typed but not
-// executed.
-func (t *Tmux) buildChainedCommand(commands []config.Command) (string, string) {
-	var runCmds []string
-	var primeCmd string
-
-	for _, c := range commands {
-		run := true
-		if c.Run != nil {
-			run = *c.Run
-		}
-		if run {
-			runCmds = append(runCmds, c.Value)
-		} else {
-			primeCmd = c.Value
-		}
-	}
-
-	return strings.Join(runCmds, " && "), primeCmd
-}
-
-// calculateSizes converts each Pane's percentage size into absolute lines of
-// the given window height. Panes without an explicit size share the remaining
-// percentage evenly.
+// calculateSizes converts each Pane's normalized percentage size into
+// absolute lines of the given window height.
 func (t *Tmux) calculateSizes(panes []config.Pane, windowHeight int) []int {
+	percents := normalizePercentages(panes)
 	sizes := make([]int, len(panes))
-
-	specifiedTotal := 0
-	unspecifiedCount := 0
-	for _, p := range panes {
-		if p.Size > 0 {
-			specifiedTotal += p.Size
-		} else {
-			unspecifiedCount++
-		}
+	for i, percent := range percents {
+		sizes[i] = percent * windowHeight / 100
 	}
-
-	remainingPercent := 100 - specifiedTotal
-	defaultSize := 0
-	if unspecifiedCount > 0 {
-		defaultSize = remainingPercent / unspecifiedCount
-	}
-
-	for i, p := range panes {
-		if p.Size > 0 {
-			sizes[i] = p.Size * windowHeight / 100
-		} else {
-			sizes[i] = defaultSize * windowHeight / 100
-		}
-	}
-
 	return sizes
 }

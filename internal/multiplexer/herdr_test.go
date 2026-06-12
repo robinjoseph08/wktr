@@ -26,15 +26,22 @@ func fixture(t *testing.T, name string) []byte {
 
 // fakeHerdrCLI stands in for the herdr binary. It records every invocation
 // and replays recorded fixtures keyed by the "<noun> <verb>" subcommand.
+// Subcommands invoked more than once per test (successive pane splits) queue
+// their outputs in order via queues; queued outputs win over outputs.
 type fakeHerdrCLI struct {
 	calls   [][]string
 	outputs map[string][]byte
+	queues  map[string][][]byte
 	errs    map[string]error
 }
 
 func (f *fakeHerdrCLI) run(args ...string) ([]byte, error) {
 	f.calls = append(f.calls, args)
 	key := strings.Join(args[:2], " ")
+	if queued := f.queues[key]; len(queued) > 0 {
+		f.queues[key] = queued[1:]
+		return queued[0], f.errs[key]
+	}
 	return f.outputs[key], f.errs[key]
 }
 
@@ -82,6 +89,203 @@ func TestHerdrOpenWindowCreatesUnfocusedTabThenFocusesIt(t *testing.T) {
 	}
 }
 
+// TestHerdrOpenWindowAppliesFullLayout drives a three-Pane Layout with
+// explicit sizes, run commands, prime commands, and a focus Pane through
+// OpenWindow and asserts the exact herdr command sequence. The tab-creation
+// fixture and the pane fixtures were recorded in different live sessions, so
+// their IDs differ; every ID asserted below is threaded from the fixture
+// output that produced it, never constructed.
+func TestHerdrOpenWindowAppliesFullLayout(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_focused.json"),
+			"pane focus": fixture(t, "herdr_pane_focused.json"),
+			// pane run and pane send-text emit nothing on success
+			// (verified against a live herdr session), so the fake's
+			// default empty output is the recorded behavior.
+		},
+		queues: map[string][][]byte{
+			"pane split": {
+				fixture(t, "herdr_pane_split.json"),
+				fixture(t, "herdr_pane_split_second.json"),
+			},
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	layout := config.Layout{
+		Direction: "vertical",
+		Panes: []config.Pane{
+			{Size: 50, Command: "npm run dev"},
+			{Size: 30, Focus: true, Commands: []config.Command{
+				{Value: "npm install", Run: boolPtr(true)},
+				{Value: "npm test", Run: boolPtr(true)},
+				{Value: "npm start", Run: boolPtr(false)},
+			}},
+			{Size: 20, Command: "vim .", Run: boolPtr(false)},
+		},
+	}
+
+	if err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+
+	want := [][]string{
+		{"tab", "create", "--no-focus", "--label", "my-task", "--cwd", "/worktrees/org/repo/my-task"},
+		// Pane 1 splits the root Pane (ID from the creation output); the
+		// top pane keeps 50/100 of the window.
+		{"pane", "split", "w653faa4eef9f71-3", "--direction", "down", "--ratio", "0.5000", "--no-focus", "--cwd", "/worktrees/org/repo/my-task"},
+		// Pane 2 splits Pane 1 (ID from the first split's output); the top
+		// pane keeps 30/(30+20) of the remainder.
+		{"pane", "split", "w65403395f73d84-3", "--direction", "down", "--ratio", "0.6000", "--no-focus", "--cwd", "/worktrees/org/repo/my-task"},
+		// Run commands execute atomically; a Pane's run commands chain
+		// with && and its prime command is sent as bare text.
+		{"pane", "run", "w653faa4eef9f71-3", "npm run dev"},
+		{"pane", "run", "w65403395f73d84-3", "npm install && npm test"},
+		{"pane", "send-text", "w65403395f73d84-3", "npm start"},
+		{"pane", "send-text", "w65403395f73d84-6", "vim ."},
+		// herdr has no focus-by-ID, so the focus Pane (index 1) is reached
+		// as the down neighbor of the Pane above it.
+		{"pane", "focus", "--direction", "down", "--pane", "w653faa4eef9f71-3"},
+		{"tab", "focus", "w653faa4eef9f71:2"},
+	}
+	if !reflect.DeepEqual(cli.calls, want) {
+		t.Errorf("herdr calls:\n got %v\nwant %v", cli.calls, want)
+	}
+}
+
+// TestHerdrOpenWindowFocusesRootPaneWithoutExplicitFocus checks the focus
+// default: with no Pane marked focus, the root Pane keeps the tab's focus, so
+// no pane focus command is issued before the tab focus.
+func TestHerdrOpenWindowFocusesRootPaneWithoutExplicitFocus(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_focused.json"),
+		},
+		queues: map[string][][]byte{
+			"pane split": {fixture(t, "herdr_pane_split.json")},
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	layout := config.Layout{Direction: "vertical", Panes: []config.Pane{{}, {}}}
+	if err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+
+	for _, call := range cli.calls {
+		if call[0] == "pane" && call[1] == "focus" {
+			t.Errorf("expected no pane focus call when no Pane is marked focus, got %v", cli.calls)
+		}
+	}
+	last := cli.calls[len(cli.calls)-1]
+	if !reflect.DeepEqual(last, []string{"tab", "focus", "w653faa4eef9f71:2"}) {
+		t.Errorf("expected the tab focus to close out setup, got %v", cli.calls)
+	}
+}
+
+// TestHerdrOpenWindowSurfacesLayoutErrors covers the failure path of each
+// Layout setup step: the error envelope's message surfaces, the
+// half-assembled tab is closed, and setup halts before the tab is focused.
+// The pane-not-found fixture was recorded from a failing pane run; it stands
+// in for every pane command's error envelope since only the envelope shape
+// matters here.
+func TestHerdrOpenWindowSurfacesLayoutErrors(t *testing.T) {
+	twoPanes := config.Layout{Direction: "vertical", Panes: []config.Pane{
+		{Command: "npm run dev"},
+		{Command: "vim .", Run: boolPtr(false), Focus: true},
+	}}
+
+	tests := []struct {
+		name string
+		fail string // subcommand whose invocation fails
+	}{
+		{name: "split failure", fail: "pane split"},
+		{name: "run failure", fail: "pane run"},
+		{name: "prime failure", fail: "pane send-text"},
+		{name: "pane focus failure", fail: "pane focus"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cli := &fakeHerdrCLI{
+				outputs: map[string][]byte{
+					"tab create": fixture(t, "herdr_tab_created.json"),
+					"tab close":  fixture(t, "herdr_tab_closed.json"),
+					"tab focus":  fixture(t, "herdr_tab_focused.json"),
+					"pane focus": fixture(t, "herdr_pane_focused.json"),
+				},
+				queues: map[string][][]byte{
+					"pane split": {fixture(t, "herdr_pane_split.json")},
+				},
+			}
+			cli.outputs[tt.fail] = fixture(t, "herdr_pane_not_found.json")
+			delete(cli.queues, tt.fail)
+			cli.errs = map[string]error{tt.fail: errors.New("exit status 1")}
+			h := newHerdrWithCLI(cli)
+
+			err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", twoPanes)
+			if err == nil || !strings.Contains(err.Error(), "pane bogus-99 not found") {
+				t.Fatalf("expected herdr error message to be surfaced, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "herdr "+tt.fail) {
+				t.Errorf("expected the failing subcommand to be named, got %v", err)
+			}
+			closed := false
+			for _, call := range cli.calls {
+				if call[0] == "tab" && call[1] == "focus" {
+					t.Errorf("expected no tab focus after a failed %s, got %v", tt.fail, cli.calls)
+				}
+				if reflect.DeepEqual(call, []string{"tab", "close", "w653faa4eef9f71:2"}) {
+					closed = true
+				}
+			}
+			if !closed {
+				t.Errorf("expected the half-assembled tab to be closed after a failed %s, got %v", tt.fail, cli.calls)
+			}
+		})
+	}
+}
+
+// TestHerdrOpenWindowFocusesDeeperFocusPane pins the focus reference for a
+// focus Pane below index 1: the Pane at index i is focused as the down
+// neighbor of Pane i-1, so focusing index 2 must reference the second Pane's
+// ID (returned by the first split), not the root Pane's.
+func TestHerdrOpenWindowFocusesDeeperFocusPane(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_focused.json"),
+			"pane focus": fixture(t, "herdr_pane_focused.json"),
+		},
+		queues: map[string][][]byte{
+			"pane split": {
+				fixture(t, "herdr_pane_split.json"),
+				fixture(t, "herdr_pane_split_second.json"),
+			},
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	layout := config.Layout{Direction: "vertical", Panes: []config.Pane{{}, {}, {Focus: true}}}
+	if err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+
+	want := []string{"pane", "focus", "--direction", "down", "--pane", "w65403395f73d84-3"}
+	var focusCalls [][]string
+	for _, call := range cli.calls {
+		if call[0] == "pane" && call[1] == "focus" {
+			focusCalls = append(focusCalls, call)
+		}
+	}
+	if len(focusCalls) != 1 || !reflect.DeepEqual(focusCalls[0], want) {
+		t.Errorf("pane focus calls: got %v, want exactly one %v", focusCalls, want)
+	}
+}
+
 func TestHerdrOpenWindowSurfacesCreateError(t *testing.T) {
 	cli := &fakeHerdrCLI{
 		outputs: map[string][]byte{
@@ -126,6 +330,35 @@ func TestHerdrOpenWindowSurfacesFocusError(t *testing.T) {
 	err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", config.DefaultLayout())
 	if err == nil || !strings.Contains(err.Error(), "tab bogus:99 not found") {
 		t.Fatalf("expected herdr focus error to be surfaced, got %v", err)
+	}
+	// A focus failure happens after setup succeeded, so the fully built tab
+	// is left in place rather than closed like a half-assembled one.
+	for _, call := range cli.calls {
+		if call[0] == "tab" && call[1] == "close" {
+			t.Errorf("expected the fully built tab to be left in place on focus failure, got %v", cli.calls)
+		}
+	}
+}
+
+// TestHerdrOpenWindowSkipsBlankCommand pins the blank-drop rule on the
+// single-command path: a whitespace-only command sends nothing to the Pane.
+func TestHerdrOpenWindowSkipsBlankCommand(t *testing.T) {
+	cli := &fakeHerdrCLI{
+		outputs: map[string][]byte{
+			"tab create": fixture(t, "herdr_tab_created.json"),
+			"tab focus":  fixture(t, "herdr_tab_focused.json"),
+		},
+	}
+	h := newHerdrWithCLI(cli)
+
+	layout := config.Layout{Panes: []config.Pane{{Command: "   "}}}
+	if err := h.OpenWindow("my-task", "/worktrees/org/repo/my-task", layout); err != nil {
+		t.Fatalf("OpenWindow: %v", err)
+	}
+	for _, call := range cli.calls {
+		if call[0] == "pane" {
+			t.Errorf("expected no pane commands for a blank command, got %v", cli.calls)
+		}
 	}
 }
 
@@ -323,6 +556,75 @@ func TestHerdrKillWindowIsBestEffort(t *testing.T) {
 	}
 }
 
+// TestHerdrSplitRatios is the ratio-based sibling of the tmux
+// calculateSizes tests: both consume the same percentage normalization, but
+// herdr sizes each split as the fraction of the region the top pane keeps.
+func TestHerdrSplitRatios(t *testing.T) {
+	tests := []struct {
+		name  string
+		panes []config.Pane
+		want  []float64
+	}{
+		{
+			name:  "no panes need no splits",
+			panes: nil,
+			want:  []float64{},
+		},
+		{
+			name:  "single pane needs no splits",
+			panes: []config.Pane{{}},
+			want:  []float64{},
+		},
+		{
+			name:  "explicit sizes",
+			panes: []config.Pane{{Size: 50}, {Size: 30}, {Size: 20}},
+			// Split 1 leaves pane 0 with 50/100 of the window; split 2
+			// leaves pane 1 with 30/(30+20) of the remainder.
+			want: []float64{0.5, 0.6},
+		},
+		{
+			name:  "even distribution",
+			panes: []config.Pane{{}, {}, {}},
+			// 3 panes, no explicit size = 33% each: 33/99, then 33/66.
+			want: []float64{1.0 / 3.0, 0.5},
+		},
+		{
+			name:  "explicit size with unspecified remainder",
+			panes: []config.Pane{{Size: 50}, {}, {}},
+			// The unspecified panes share the remaining 50% evenly.
+			want: []float64{0.5, 0.5},
+		},
+		{
+			name:  "zero-percent tail falls back to an even split",
+			panes: []config.Pane{{Size: 100}, {}, {}},
+			// Panes 1 and 2 normalize to 0%, so their split has no
+			// percentages left to divide and falls back to an even split.
+			want: []float64{1.0, 0.5},
+		},
+		{
+			name:  "deeper zero-percent tail divides evenly among what remains",
+			panes: []config.Pane{{Size: 100}, {}, {}, {}},
+			// Each fallback split divides the leftover region evenly among
+			// the Panes that remain: three ways, then two.
+			want: []float64{1.0, 1.0 / 3.0, 0.5},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitRatios(tt.panes)
+			if len(got) != len(tt.want) {
+				t.Fatalf("expected %d ratios, got %v", len(tt.want), got)
+			}
+			for i := range tt.want {
+				if diff := got[i] - tt.want[i]; diff > 1e-9 || diff < -1e-9 {
+					t.Errorf("ratio %d: got %v, want %v", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 // resultOf unwraps the JSON envelope around a recorded herdr response,
 // mirroring what the backend does before parsing a payload.
 func resultOf(t *testing.T, raw []byte) json.RawMessage {
@@ -354,6 +656,30 @@ func TestHerdrTabCreationErrorsWithoutTabID(t *testing.T) {
 	_, err := parseTabCreated([]byte(`{"tab":{"label":"my-task"}}`))
 	if err == nil || !strings.Contains(err.Error(), "tab ID") {
 		t.Fatalf("expected missing tab ID error, got %v", err)
+	}
+}
+
+func TestHerdrTabCreationErrorsWithoutRootPaneID(t *testing.T) {
+	_, err := parseTabCreated([]byte(`{"tab":{"tab_id":"w653faa4eef9f71:2","label":"my-task"}}`))
+	if err == nil || !strings.Contains(err.Error(), "root pane ID") {
+		t.Fatalf("expected missing root pane ID error, got %v", err)
+	}
+}
+
+func TestHerdrPaneSplitParsesOpaqueID(t *testing.T) {
+	paneID, err := parsePaneSplit(resultOf(t, fixture(t, "herdr_pane_split.json")))
+	if err != nil {
+		t.Fatalf("parsePaneSplit: %v", err)
+	}
+	if paneID != "w65403395f73d84-3" {
+		t.Errorf("pane ID: got %q, want %q", paneID, "w65403395f73d84-3")
+	}
+}
+
+func TestHerdrPaneSplitErrorsWithoutPaneID(t *testing.T) {
+	_, err := parsePaneSplit([]byte(`{"pane":{"focused":false}}`))
+	if err == nil || !strings.Contains(err.Error(), "pane ID") {
+		t.Fatalf("expected missing pane ID error, got %v", err)
 	}
 }
 

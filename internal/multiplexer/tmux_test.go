@@ -93,11 +93,32 @@ func TestBuildChainedCommand(t *testing.T) {
 			wantRun:   "",
 			wantPrime: "npm start",
 		},
+		{
+			name: "blank values are dropped",
+			commands: []config.Command{
+				{Value: "npm install", Run: boolPtr(true)},
+				{Value: "", Run: boolPtr(true)},
+				{Value: "npm test", Run: boolPtr(true)},
+				{Value: "npm start", Run: boolPtr(false)},
+				{Value: "   ", Run: boolPtr(false)},
+			},
+			wantRun:   "npm install && npm test",
+			wantPrime: "npm start",
+		},
+		{
+			name: "all blank values yield no commands",
+			commands: []config.Command{
+				{Value: "", Run: boolPtr(true)},
+				{Value: " ", Run: boolPtr(false)},
+			},
+			wantRun:   "",
+			wantPrime: "",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			run, prime := NewTmux().buildChainedCommand(tt.commands)
+			run, prime := buildChainedCommand(tt.commands)
 			if run != tt.wantRun {
 				t.Errorf("run: got %q, want %q", run, tt.wantRun)
 			}

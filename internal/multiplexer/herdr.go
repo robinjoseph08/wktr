@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/robinjoseph08/wktr/internal/config"
@@ -15,10 +16,9 @@ import (
 // with the Task name. herdr addresses tabs and panes by opaque IDs emitted as
 // JSON, so the backend threads IDs from command output to command input and
 // never constructs them. Tabs are created in whatever workspace the user is
-// in; wktr never creates or manages herdr workspaces.
-//
-// This slice opens the single default Pane only. Full Layout support (Pane
-// splits, run and prime commands) is a follow-up.
+// in; wktr never creates or manages herdr workspaces. Splits are sized by
+// ratio rather than tmux's absolute lines, run commands use herdr's atomic
+// run operation, and prime commands use its send-text operation.
 type Herdr struct {
 	// run invokes the herdr CLI and returns the JSON envelope it emitted.
 	// Tests replace it to replay recorded fixtures.
@@ -37,20 +37,95 @@ func (h *Herdr) Detect() bool {
 }
 
 func (h *Herdr) OpenWindow(name, dir string, layout config.Layout) error {
-	// The Layout is not applied yet: only the tab's single default Pane
-	// opens. The layout parameter stays so the Multiplexer interface holds.
-	_ = layout
-
-	// Errors from createTab and focusTab already identify the herdr
-	// subcommand that failed, so they propagate unwrapped.
+	// Errors from the herdr helpers already identify the herdr subcommand
+	// that failed, so they propagate unwrapped.
 	created, err := h.createTab(name, dir)
 	if err != nil {
 		return err
 	}
-	// The tab is created without focus and focused only after setup. Setup
-	// is empty in this slice; the Layout follow-up will run between create
-	// and focus.
+	// The tab is created without focus and focused only after setup, so the
+	// user never watches the Layout assemble.
+	if err := h.setupPanes(created.RootPane.PaneID, dir, layout); err != nil {
+		// Close the half-assembled tab so a setup failure does not strand
+		// an unfocused tab the user has to hunt down (wktr remove cannot
+		// close herdr tabs yet). Best effort: the setup error is the one
+		// worth reporting. A focus failure below leaves the tab in place,
+		// since by then it is fully built and usable.
+		_, _ = h.command("tab", "close", created.Tab.TabID)
+		return err
+	}
 	return h.focusTab(created.Tab.TabID)
+}
+
+// setupPanes applies the Layout inside a freshly created tab: it splits the
+// root Pane into the configured stack, sends each Pane's run and prime
+// commands, and focuses the configured Pane.
+func (h *Herdr) setupPanes(rootPaneID, dir string, layout config.Layout) error {
+	panes := layout.Panes
+	if len(panes) == 0 {
+		return nil
+	}
+
+	paneIDs := make([]string, len(panes))
+	paneIDs[0] = rootPaneID
+
+	ratios := splitRatios(panes)
+	for i := 1; i < len(panes); i++ {
+		// Pane i is created by splitting Pane i-1, top to bottom, so each
+		// split targets the pane ID returned by the previous one.
+		paneID, err := h.splitPane(paneIDs[i-1], dir, ratios[i-1])
+		if err != nil {
+			return err
+		}
+		paneIDs[i] = paneID
+	}
+
+	for i, pane := range panes {
+		if err := h.sendPaneCommands(paneIDs[i], pane); err != nil {
+			return err
+		}
+	}
+
+	// A tab's focused pane stays the root pane through --no-focus splits
+	// (verified against a live herdr session), so only a non-root focus
+	// Pane needs an explicit focus.
+	if focusIdx := focusIndex(panes); focusIdx > 0 {
+		return h.focusPaneBelow(paneIDs[focusIdx-1])
+	}
+	return nil
+}
+
+// sendPaneCommands sends a Pane's configured commands: run commands execute
+// via herdr's atomic run operation (a list chains with && as in tmux) and
+// prime commands land as typed-but-unexecuted text via send-text.
+func (h *Herdr) sendPaneCommands(paneID string, pane config.Pane) error {
+	if len(pane.Commands) > 0 {
+		run, prime := buildChainedCommand(pane.Commands)
+		if run != "" {
+			if err := h.runInPane(paneID, run); err != nil {
+				return err
+			}
+		}
+		if prime != "" {
+			return h.primePane(paneID, prime)
+		}
+		return nil
+	}
+
+	// Blank commands are dropped on the single-command path too, matching
+	// buildChainedCommand.
+	if strings.TrimSpace(pane.Command) == "" {
+		return nil
+	}
+
+	run := true
+	if pane.Run != nil {
+		run = *pane.Run
+	}
+	if run {
+		return h.runInPane(paneID, pane.Command)
+	}
+	return h.primePane(paneID, pane.Command)
 }
 
 func (h *Herdr) FocusWindow(name string) error {
@@ -104,8 +179,42 @@ func (h *Herdr) focusTab(tabID string) error {
 	return err
 }
 
-// findTab looks a tab up by label over the tab listing, which spans all
-// workspaces. It returns nil when no tab carries the label.
+// splitPane splits the given pane downward, the new pane taking the bottom of
+// the region, and returns the new pane's ID. ratio is the fraction of the
+// region the original (top) pane keeps.
+func (h *Herdr) splitPane(paneID, dir string, ratio float64) (string, error) {
+	result, err := h.command("pane", "split", paneID,
+		"--direction", "down",
+		"--ratio", strconv.FormatFloat(ratio, 'f', 4, 64),
+		"--no-focus", "--cwd", dir)
+	if err != nil {
+		return "", err
+	}
+	return parsePaneSplit(result)
+}
+
+func (h *Herdr) runInPane(paneID, command string) error {
+	return h.commandNoResult("pane", "run", paneID, command)
+}
+
+func (h *Herdr) primePane(paneID, text string) error {
+	return h.commandNoResult("pane", "send-text", paneID, text)
+}
+
+// focusPaneBelow focuses the pane directly below the given pane. herdr has no
+// focus-by-ID operation, only focus relative to a reference pane, and the
+// Layout's Panes are stacked top to bottom, so the Pane at index i is the
+// down neighbor of the Pane at index i-1.
+func (h *Herdr) focusPaneBelow(paneID string) error {
+	_, err := h.command("pane", "focus", "--direction", "down", "--pane", paneID)
+	return err
+}
+
+// findTab looks a tab up by label over the tab listing. The listing spans all
+// workspaces (verified against a live herdr server: an unflagged tab list
+// returns tabs from every workspace, not just the focused one), so lookup by
+// label finds a Window anywhere, mirroring tmux's any-session search. It
+// returns nil when no tab carries the label.
 func (h *Herdr) findTab(name string) (*herdrTab, error) {
 	result, err := h.command("tab", "list")
 	if err != nil {
@@ -121,6 +230,40 @@ func (h *Herdr) findTab(name string) (*herdrTab, error) {
 		}
 	}
 	return nil, nil
+}
+
+// splitRatios computes the --ratio for each split that builds the Layout's
+// Pane stack: ratios[i-1] sizes the split of Pane i-1 that creates Pane i
+// (zero-indexed, top to bottom). herdr's ratio is the fraction of the split
+// region kept by the original (top) pane, verified against a live herdr
+// session, so each ratio is Pane i-1's percentage over the percentages of
+// Panes i-1 through n. When that remainder is zero (every remaining Pane
+// normalized to 0%), the split falls back to dividing the region evenly.
+//
+// Degenerate ratios are not guarded because herdr clamps them itself
+// (verified live: 0.0, 1.0, and 1.5 all split successfully and clamp to the
+// 0.1..0.9 range), so the 1.0 a zero-percent tail produces yields a thin
+// bottom pane rather than a failed split.
+func splitRatios(panes []config.Pane) []float64 {
+	// No Panes need no ratios; the guard also keeps the capacity arithmetic
+	// below non-negative.
+	if len(panes) == 0 {
+		return nil
+	}
+	percents := normalizePercentages(panes)
+	ratios := make([]float64, 0, len(panes)-1)
+	for i := 1; i < len(panes); i++ {
+		remaining := 0
+		for _, p := range percents[i-1:] {
+			remaining += p
+		}
+		if remaining <= 0 {
+			ratios = append(ratios, 1.0/float64(len(panes)-i+1))
+			continue
+		}
+		ratios = append(ratios, float64(percents[i-1])/float64(remaining))
+	}
+	return ratios
 }
 
 // herdrEnvelope is the JSON wrapper around every herdr CLI response: a result
@@ -142,26 +285,47 @@ func (h *Herdr) command(noun, verb string, extra ...string) (json.RawMessage, er
 	args := append([]string{noun, verb}, extra...)
 	out, runErr := h.run(args...)
 
-	var envelope herdrEnvelope
-	if err := json.Unmarshal(out, &envelope); err == nil {
-		if envelope.Error != nil && envelope.Error.Message != "" {
-			return nil, fmt.Errorf("herdr %s: %s", subcommand, envelope.Error.Message)
-		}
+	if runErr == nil {
+		var envelope herdrEnvelope
 		// Success needs a real result and no error object; anything else
-		// (a null or missing result, an error without a message) falls
-		// through to the unexpected-output diagnostic.
-		if runErr == nil && envelope.Error == nil && len(envelope.Result) > 0 && string(envelope.Result) != "null" {
+		// (a null or missing result, an error with or without a message)
+		// falls through to the error diagnostics.
+		if err := json.Unmarshal(out, &envelope); err == nil && envelope.Error == nil && len(envelope.Result) > 0 && string(envelope.Result) != "null" {
 			return envelope.Result, nil
 		}
+	}
+	return nil, herdrCommandError(subcommand, out, runErr)
+}
+
+// commandNoResult runs a herdr CLI command whose success emits nothing: pane
+// run and pane send-text exit zero with empty output (verified against a live
+// herdr session) and emit the usual JSON error envelope only on failure.
+func (h *Herdr) commandNoResult(noun, verb string, extra ...string) error {
+	subcommand := noun + " " + verb
+	args := append([]string{noun, verb}, extra...)
+	out, runErr := h.run(args...)
+	if runErr == nil {
+		return nil
+	}
+	return herdrCommandError(subcommand, out, runErr)
+}
+
+// herdrCommandError shapes a failed herdr command's output into an error:
+// the message from herdr's JSON error envelope when there is one, otherwise
+// the run error and any non-envelope output.
+func herdrCommandError(subcommand string, out []byte, runErr error) error {
+	var envelope herdrEnvelope
+	if err := json.Unmarshal(out, &envelope); err == nil && envelope.Error != nil && envelope.Error.Message != "" {
+		return fmt.Errorf("herdr %s: %s", subcommand, envelope.Error.Message)
 	}
 	detail := strings.TrimSpace(string(out))
 	if runErr != nil {
 		if detail == "" {
-			return nil, fmt.Errorf("herdr %s: %w", subcommand, runErr)
+			return fmt.Errorf("herdr %s: %w", subcommand, runErr)
 		}
-		return nil, fmt.Errorf("herdr %s: %w: %s", subcommand, runErr, detail)
+		return fmt.Errorf("herdr %s: %w: %s", subcommand, runErr, detail)
 	}
-	return nil, fmt.Errorf("herdr %s: unexpected output: %q", subcommand, detail)
+	return fmt.Errorf("herdr %s: unexpected output: %q", subcommand, detail)
 }
 
 func parseTabCreated(result []byte) (herdrTabCreated, error) {
@@ -172,7 +336,26 @@ func parseTabCreated(result []byte) (herdrTabCreated, error) {
 	if created.Tab.TabID == "" {
 		return herdrTabCreated{}, fmt.Errorf("herdr tab creation output did not include a tab ID")
 	}
+	// The root pane ID seeds the Layout setup (it is the target of the
+	// first split), so a payload without one is rejected here rather than
+	// surfacing as an opaque split error later.
+	if created.RootPane.PaneID == "" {
+		return herdrTabCreated{}, fmt.Errorf("herdr tab creation output did not include a root pane ID")
+	}
 	return created, nil
+}
+
+func parsePaneSplit(result []byte) (string, error) {
+	var split struct {
+		Pane herdrPane `json:"pane"`
+	}
+	if err := json.Unmarshal(result, &split); err != nil {
+		return "", fmt.Errorf("failed to parse herdr pane split output: %w", err)
+	}
+	if split.Pane.PaneID == "" {
+		return "", fmt.Errorf("herdr pane split output did not include a pane ID")
+	}
+	return split.Pane.PaneID, nil
 }
 
 func parseTabList(result []byte) ([]herdrTab, error) {
