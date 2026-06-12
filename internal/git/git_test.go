@@ -76,8 +76,45 @@ func TestParseRemoteURL(t *testing.T) {
 			wantRepo: ".github",
 		},
 		{
+			name:     "trailing slash",
+			url:      "https://github.com/org/repo/",
+			wantOrg:  "org",
+			wantRepo: "repo",
+		},
+		{
+			name:     "trailing slash after .git",
+			url:      "https://github.com/org/repo.git/",
+			wantOrg:  "org",
+			wantRepo: "repo",
+		},
+		{
 			name:    "repo segment of only .git",
 			url:     "https://github.com/org/.git",
+			wantErr: true,
+		},
+		{
+			name:    "repo segment of only .git in different case",
+			url:     "https://github.com/org/.GIT",
+			wantErr: true,
+		},
+		{
+			name:    "repo segment that strips to a dot",
+			url:     "https://github.com/org/..git",
+			wantErr: true,
+		},
+		{
+			name:    "dot repo segment",
+			url:     "https://github.com/org/.",
+			wantErr: true,
+		},
+		{
+			name:    "org segment of only .git",
+			url:     "https://github.com/.git/repo",
+			wantErr: true,
+		},
+		{
+			name:    "dot-dot org segment",
+			url:     "https://github.com/../repo",
 			wantErr: true,
 		},
 		{
