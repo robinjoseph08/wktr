@@ -40,6 +40,18 @@ func TestParseRemoteURL(t *testing.T) {
 			wantRepo: "repo",
 		},
 		{
+			name:     "SSH format with dots in repo name",
+			url:      "git@github.com:robinjoseph08/robinandmadeline.com.git",
+			wantOrg:  "robinjoseph08",
+			wantRepo: "robinandmadeline.com",
+		},
+		{
+			name:     "HTTPS format with dots in repo name without .git",
+			url:      "https://github.com/robinjoseph08/robinandmadeline.com",
+			wantOrg:  "robinjoseph08",
+			wantRepo: "robinandmadeline.com",
+		},
+		{
 			name:    "invalid URL",
 			url:     "not-a-url",
 			wantErr: true,

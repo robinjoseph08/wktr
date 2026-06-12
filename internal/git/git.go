@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-var remotePattern = regexp.MustCompile(`[/:]([^/]+)/([^/.]+?)(?:\.git)?$`)
+var remotePattern = regexp.MustCompile(`[/:]([^/]+)/([^/]+?)(?:\.git)?$`)
 
 type OrgRepo struct {
 	Org  string
