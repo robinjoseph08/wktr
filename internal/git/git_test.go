@@ -52,6 +52,45 @@ func TestParseRemoteURL(t *testing.T) {
 			wantRepo: "robinandmadeline.com",
 		},
 		{
+			name:     "repo name whose letters overlap .git",
+			url:      "git@github.com:org/audit.git",
+			wantOrg:  "org",
+			wantRepo: "audit",
+		},
+		{
+			name:     "repo name literally ending in .git",
+			url:      "https://github.com/org/foo.git.git",
+			wantOrg:  "org",
+			wantRepo: "foo.git",
+		},
+		{
+			name:     "dotted org name",
+			url:      "git@gitlab.com:my.team/repo.git",
+			wantOrg:  "my.team",
+			wantRepo: "repo",
+		},
+		{
+			name:     "dot-prefixed repo name",
+			url:      "https://github.com/org/.github",
+			wantOrg:  "org",
+			wantRepo: ".github",
+		},
+		{
+			name:    "repo segment of only .git",
+			url:     "https://github.com/org/.git",
+			wantErr: true,
+		},
+		{
+			name:    "local gitdir path",
+			url:     "/path/to/myrepo/.git",
+			wantErr: true,
+		},
+		{
+			name:    "dot-dot repo segment",
+			url:     "git@github.com:org/..",
+			wantErr: true,
+		},
+		{
 			name:    "invalid URL",
 			url:     "not-a-url",
 			wantErr: true,

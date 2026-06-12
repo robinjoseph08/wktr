@@ -25,6 +25,14 @@ func ParseRemoteURL(url string) (OrgRepo, error) {
 	if matches == nil {
 		return OrgRepo{}, fmt.Errorf("cannot parse org/repo from remote URL: %s", url)
 	}
+	// Reject segments that would corrupt the worktree directory layout:
+	// "." and ".." traverse out of it, and ".git" makes a parent directory
+	// look like a git repository.
+	for _, segment := range matches[1:3] {
+		if segment == "." || segment == ".." || segment == ".git" {
+			return OrgRepo{}, fmt.Errorf("cannot parse org/repo from remote URL: %s", url)
+		}
+	}
 	return OrgRepo{Org: matches[1], Repo: matches[2]}, nil
 }
 
